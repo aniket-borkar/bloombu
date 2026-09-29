@@ -1,0 +1,9 @@
+{
+  "name": "blmbu-plugin-edgar",
+  "version": "1.1.0",
+  "description": "SEC EDGAR company filings (CF <GO>) for BLMBU Terminal",
+  "private": true,
+  "type": "module",
+  "main": "index.mjs",
+  "license": "MIT"
+}
