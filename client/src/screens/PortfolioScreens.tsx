@@ -832,6 +832,10 @@ export function PortScreen({ panel }: ScreenProps) {
         <button className="tool-button" onClick={() => usePanels.getState().execute(panel.id, { kind: "function", fn: "PRTU" })}>
           Edit in PRTU
         </button>
+        <button className="tool-button" data-testid="port-scenario" disabled={!id} onClick={() => {
+          if (id) rememberPortfolio(user, id);
+          usePanels.getState().execute(panel.id, { kind: "function", fn: "SCEN" });
+        }}>Stress in SCEN</button>
         {a && (
           <span className="gray">
             {a.baseCurrency} {money(a.totals.marketValue)} · day <span className={a.totals.dayPnl >= 0 ? "up" : "down"}>{money(a.totals.dayPnl)}</span>

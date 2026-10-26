@@ -32,6 +32,9 @@ import type {
 } from "../../server/src/types";
 import type { PluginFunctionInfo, ScreenSpec } from "../../server/src/plugins/spec";
 import type { Brief, ForwardCurve, MembersAnalysis, PaperAccount, PaperOrder, RateProbabilities, SourcesReport } from "../../server/src/types";
+import type { ScenarioInput, ScenarioResult } from "../../server/src/portfolio/scenario";
+import type { ValuationContext, ValuationInput, ValuationResult } from "../../server/src/research/valuation";
+import type { Notebook, NotebookInput, NotebookSummary } from "../../server/src/research/notebooks";
 
 export type {
   Portfolio,
@@ -160,6 +163,20 @@ const sec = (s: string) => encodeURIComponent(s);
 const list = (securities: string[]) => securities.map(sec).join(",");
 
 export const api = {
+  scenario: (user: string, id: number, input: ScenarioInput) =>
+    sendJson<ScenarioResult>("POST", `/api/portfolios/${id}/scenario`, { user, ...input }),
+  valuationContext: (security: string, signal?: AbortSignal) =>
+    getJson<ValuationContext>(`/api/research/valuation/${sec(security)}`, signal),
+  valuation: (input: ValuationInput) =>
+    sendJson<ValuationResult>("POST", `/api/research/valuation/${sec(input.security)}`, input),
+  notebooks: {
+    list: (user: string, signal?: AbortSignal) => getJson<NotebookSummary[]>(`/api/notebooks?user=${encodeURIComponent(user)}`, signal),
+    get: (user: string, id: number, signal?: AbortSignal) => getJson<Notebook>(`/api/notebooks/${id}?user=${encodeURIComponent(user)}`, signal),
+    create: (user: string, input: NotebookInput) => sendJson<Notebook>("POST", "/api/notebooks", { user, ...input }),
+    update: (user: string, id: number, revision: number, input: NotebookInput) =>
+      sendJson<Notebook>("PUT", `/api/notebooks/${id}`, { user, revision, ...input }),
+    remove: (user: string, id: number, revision: number) => sendJson<null>("DELETE", `/api/notebooks/${id}`, { user, revision }),
+  },
   quotes: (securities: string[], signal?: AbortSignal) => getJson<Quote[]>(`/api/quotes?s=${list(securities)}`, signal),
   valuations: (securities: string[], signal?: AbortSignal) =>
     getJson<Valuation[]>(`/api/valuations?s=${list(securities)}`, signal),

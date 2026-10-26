@@ -1247,6 +1247,35 @@ button {
   line-height: 15px;
 }
 
+/* Research workbenches retain the terminal's compact, editable layout. */
+.research-screen {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  overflow: auto;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  padding-bottom: 8px;
+}
+.research-screen > * { flex-shrink: 0; }
+.research-screen > .grid-wrap { flex: none; min-height: 110px; max-height: 330px; }
+.research-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; min-width: 0; }
+.research-copy { margin: 2px 0 6px; white-space: normal; overflow-wrap: anywhere; }
+.research-number { width: 9ch; }
+.research-field { display: flex; flex-direction: column; min-width: 0; gap: 2px; }
+.research-field small { font-size: 11px; line-height: 14px; }
+.research-text-field { display: flex; flex-direction: column; gap: 3px; }
+.research-textarea { height: auto; min-height: 54px; resize: vertical; line-height: var(--line); }
+.research-table { overflow: auto; }
+.research-evidence { border-bottom: 1px solid var(--grid-line); padding: 4px 0 7px; }
+.research-snapshot { color: var(--white); font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 250px; overflow: auto; }
+.research-link { color: var(--amber); overflow-wrap: anywhere; }
+.research-message { white-space: normal; }
+.research-launch { border-top: 1px solid var(--grid-line); border-bottom: 1px solid var(--grid-line); margin: 10px 0; padding: 7px 0; }
+@container (max-width: 700px) { .research-columns { grid-template-columns: minmax(0, 1fr); } }
+
 /* Phones and narrow windows: one panel at a time; the PANEL key (Tab) switches panels. */
 @media (max-width: 900px) {
   .grid,
@@ -1275,6 +1304,7 @@ button {
   .brief-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+  .research-columns { grid-template-columns: minmax(0, 1fr); }
 
   .palette-item {
     grid-template-columns: 9ch minmax(0, 1fr);

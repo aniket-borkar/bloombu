@@ -6,6 +6,7 @@ import { setPendingBacktest } from "../terminal/backtestState";
 import { isNumericCell, parseBlocks } from "../terminal/markdown";
 import { setPendingDraft } from "../terminal/portfolioState";
 import { setPendingBql } from "../terminal/sheetState";
+import { captureInNotebook } from "../terminal/researchState";
 import { openLink, type ScreenProps } from "./common";
 
 type ActionState = "creating" | "created" | { error: string };
@@ -21,6 +22,7 @@ interface Turn {
   /** Progress of actions that change data (creating a drafted alert), by action index. */
   actionState: Record<number, ActionState>;
   error: string | null;
+  provenance?: { security: string | null; provider: string | null; model: string | null; depth: Depth };
 }
 
 const MAX_SOURCES = 12;
@@ -218,7 +220,9 @@ export function AskScreen({ panel, security, fn }: ScreenProps) {
     setTurns((t) => [
       ...t,
       { role: "user", content: question, depth, tools: [], sources: [], actions: [], actionState: {}, error: null },
-      { role: "assistant", content: "", tools: [], sources: [], actions: [], actionState: {}, error: null },
+      { role: "assistant", content: "", tools: [], sources: [], actions: [], actionState: {}, error: null,
+        provenance: { security, provider: status.data?.provider ?? null, model: depth === "deep" ? status.data?.deepModel ?? status.data?.model ?? null : status.data?.model ?? null, depth },
+      },
     ]);
     const patch = (f: (t: Turn) => Turn) => setTurns((all) => [...all.slice(0, -1), f(all[all.length - 1])]);
     setBusy(true);
@@ -317,6 +321,11 @@ export function AskScreen({ panel, security, fn }: ScreenProps) {
                   </div>
                 ))}
                 <Rich text={t.content || (busy && i === turns.length - 1 ? "..." : "")} />
+                {t.content && !(busy && i === turns.length - 1) && <button className="tool-button" data-testid="ask-capture" onClick={() => captureInNotebook(panel.id, {
+                  kind: "note", title: `Research answer: ${turns[i - 1]?.content ?? "Market research"}`.slice(0, 200),
+                  ...(t.provenance?.security ? { security: t.provenance.security } : {}), source: "AI analyst answer (verify against cited sources)",
+                  data: { question: turns[i - 1]?.content ?? "", answer: t.content, sources: t.sources, provenance: t.provenance ?? null },
+                })}>Capture answer in notebook</button>}
                 {t.sources.length > 0 && <Sources sources={t.sources} />}
                 {t.actions.map((a, j) =>
                   a.type === "draft_alert" ? (

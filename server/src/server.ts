@@ -12,6 +12,7 @@ import { HistoryCache } from "./history/cache.js";
 import { loadPlugins } from "./plugins/loader.js";
 import { registerPluginRoutes } from "./plugins/routes.js";
 import { registerPortfolioRoutes } from "./portfolio/routes.js";
+import { registerScenarioRoutes } from "./portfolio/scenario.js";
 import { PortfolioService } from "./portfolio/service.js";
 import { PortfolioStore } from "./portfolio/store.js";
 import { PLUGIN_FACTORIES, createPlugins } from "./providers/index.js";
@@ -23,6 +24,8 @@ import { registerWirpRoute } from "./research/wirp.js";
 import { registerForwardRoutes } from "./research/forwards.js";
 import { registerSourcesRoute } from "./research/sources.js";
 import { registerBriefRoute } from "./research/brief.js";
+import { NotebookStore, registerNotebookRoutes } from "./research/notebooks.js";
+import { registerValuationRoutes } from "./research/valuation.js";
 import { StreamHub } from "./stream/hub.js";
 import { Presence } from "./stream/presence.js";
 import { TradeHub } from "./stream/trades.js";
@@ -58,6 +61,7 @@ export async function createTerminalServer(config: Config): Promise<TerminalServ
   const llm = createLlm(config.ai);
   const deepLlm = createDeepLlm(config.ai, llm);
   const docs = new UserStore(config.cacheDb);
+  const notebooks = new NotebookStore(config.cacheDb);
   const presence = new Presence();
   const alerts = new AlertService(config.cacheDb, router, history, (user, payload) => presence.sendTo(user, payload));
   const paper = new PaperBroker(config.cacheDb, router, portfolios, (user, payload) => presence.sendTo(user, payload));
@@ -70,10 +74,13 @@ export async function createTerminalServer(config: Config): Promise<TerminalServ
     staticDir: config.staticDir,
     routes: [
       (a) => registerPortfolioRoutes(a, portfolios, portfolioService),
+      (a) => registerScenarioRoutes(a, portfolios, portfolioService),
+      (a) => registerValuationRoutes(a, router),
+      (a) => registerNotebookRoutes(a, notebooks),
       (a) => registerFieldRoutes(a, fields),
       (a) => registerBqlRoute(a, { router, fields, portfolios }),
       (a) => registerDocRoutes(a, docs),
-      (a) => registerAiRoutes(a, llm, { router, fields, history, portfolios, portfolioService, now: Date.now, plugins: extensions, paper }, deepLlm),
+      (a) => registerAiRoutes(a, llm, { router, fields, history, portfolios, portfolioService, notebooks, now: Date.now, plugins: extensions, paper }, deepLlm),
       (a) => registerAlertRoutes(a, alerts),
       (a) => registerPaperRoutes(a, paper),
       (a) => registerPluginRoutes(a, extensions, router),

@@ -1,8 +1,19 @@
+import { usePanels } from "../store/panels";
+
 export function HomeScreen() {
+  const launch = (fn: string) => {
+    const state = usePanels.getState();
+    if (fn === "VAL") state.execute(state.focused, { kind: "load", security: "AAPL US Equity", fn });
+    else state.execute(state.focused, { kind: "function", fn });
+  };
   return (
     <div data-testid="home-screen">
       <div className="menu-title">BLMBU PROFESSIONAL</div>
       <div className="white">Type a ticker, press a yellow market-sector key, then &lt;GO&gt;.</div>
+      <div className="research-launch">
+        <div className="label">Research → value → stress → record your thesis</div>
+        <div className="toolbar"><button className="tool-button" onClick={() => launch("PRTU")}>PRTU · Build portfolio</button><button className="tool-button" onClick={() => launch("VAL")}>VAL · Value a company</button><button className="tool-button" onClick={() => launch("SCEN")}>SCEN · Stress holdings</button><button className="tool-button" onClick={() => launch("NOTE")}>NOTE · Research notebook</button></div>
+      </div>
       <table className="help-table" style={{ marginTop: 8 }}>
         <tbody>
           <tr>

@@ -9,6 +9,14 @@ Not affiliated with Bloomberg L.P.
 
 ## Beyond the Bloomberg workflow
 
+- **A connected investment research lab.** `VAL` models an equity's value from
+  explicit earnings or unlevered cash-flow assumptions, with an auditable forecast
+  and sensitivity grid. `SCEN` applies hypothetical market, sector, security and
+  currency shocks to a saved portfolio, explaining price, FX and interaction
+  effects for every holding. Capture either analysis in `NOTE` alongside your
+  thesis, bear case, catalysts, review date and source evidence. Notebooks retain
+  the original assumptions and results when markets later change, support export,
+  and reject conflicting saves from an older revision.
 - **Portfolios you can paste.** Copy holdings from Excel or Google Sheets and press
   Ctrl/Cmd+V in `PRTU`. Column headers such as Ticker, Shares and Cost are recognized, and
   holdings can be identified by Bloomberg ticker (`VOD LN`), Yahoo symbol (`VOD.L`), US
@@ -43,6 +51,40 @@ Not affiliated with Bloomberg L.P.
 - **Plugins.** Add functions, data providers and AI analyst tools without forking. The
   bundled SEC EDGAR plugin adds `CF` (company filings) and filing tools for the analyst.
   See [PLUGINS.md](PLUGINS.md).
+
+## Research lab workflow
+
+1. Load an equity and run `VAL`. The earnings model discounts an assumed dividend
+   stream and an exit earnings multiple. A reference EPS may be inferred from a
+   positive quote divided by trailing P/E; that inference is labeled separately
+   from reported data. Change growth, horizon, payout, required return and the
+   terminal multiple to inspect the forecast and sensitivity.
+2. For enterprise DCF, supply **unlevered free cash flow to the firm**, WACC,
+   terminal growth, net debt and diluted shares. Cash flows, net debt and quote
+   must use consistent currency units; share counts must correspond to the
+   listing. Reported operating cash flow minus capex is not silently treated as
+   FCFF. Forecast cash flows and terminal value are discounted at year end;
+   equity value is enterprise value less net debt. See
+   [Damodaran's firm cash-flow valuation model](https://pages.stern.nyu.edu/~adamodar/New_Home_Page/lectures/fcff.html).
+3. Create a portfolio in `PRTU`, then open `SCEN`. Price shocks compound across
+   the market, sector and security; FX shocks measure the change in base-currency
+   value of a foreign currency. The lab preserves duplicate lots and short
+   positions, reconciles price/FX/interaction effects, and flags unvalued holdings.
+   These are instantaneous hypothetical shocks, not historical-crisis replicas
+   or derivative repricing models.
+4. Capture a result into `NOTE`, add the thesis and counterarguments, attach
+   source URLs and review dates, then explicitly save. Export snapshots for
+   independent review. Captures retain their original values and observation
+   times; an updated market quote does not rewrite your evidence. Revision
+   conflicts preserve your local draft so you can inspect the newer version.
+
+The lab needs no new subscription or AI provider. Review dates are recorded in
+the notebook; they do not create scheduled notifications.
+
+Notebook saves use `CACHE_DB`, like portfolios and sheets. The source setup and
+Docker volume persist that SQLite file. The Vercel adapter's default `/tmp` file
+is instance-local and temporary; persistent production research on that platform
+requires shared durable storage. Exports provide an independent copy of a draft.
 
 ## How it stays free
 
@@ -127,7 +169,7 @@ Type a mnemonic and press `<GO>`. Security functions act on the panel's loaded s
 | Collaboration | `IB` chat rooms and direct messages, `MSG` direct messages, `BLP` personal monitor (watchlist) |
 | Portfolios | `PRTU` create and edit portfolios (paste from Excel), `PORT` portfolio and risk analytics |
 | Data tools | `SHEET` live spreadsheet (`BDP`, `BDH`), `BQL` query language, `FLDS` field dictionary |
-| Research | `ASK` AI analyst, `BTST` strategy backtester, `ALRT` alerts, `BRIEF` personal daily briefing |
+| Research | `ASK` AI analyst, `BTST` strategy backtester, `ALRT` alerts, `BRIEF` personal daily briefing, `VAL` valuation lab, `SCEN` portfolio scenario lab, `NOTE` evidence-linked research notebooks |
 | Trading | `TRADE` paper trading against live quotes (positions flow into `PORT`) |
 | Workspace | `LAYOUT` panel layouts, link groups and saved workspaces, `SRC` data sources and free-tier usage, `HELP` |
 | Plugins | `CF` SEC company filings (with `PLUGINS=./plugins/edgar`), plus anything your plugins add |
@@ -230,6 +272,9 @@ Do not run a public, multi-user instance on top of sources that forbid redistrib
 | `GET /api/members/:index`, `GET /api/wirp`, `GET /api/forwards/:pair`, `GET /api/rates/overnight`, `GET /api/curves` | Index members, Fed rate probabilities, FX forwards, central-bank overnight rates, government curves |
 | `GET\|POST /api/paper`, `POST /api/paper/orders`, `DELETE /api/paper/orders/:id`, `POST /api/paper/reset` | Paper trading account and orders (pass `user`) |
 | `GET /api/brief?user=`, `GET /api/sources` | Personal briefing; data sources with free-tier usage |
+| `GET\|POST /api/research/valuation/:security` | Reference observations, or an earnings/FCFF valuation from explicit assumptions |
+| `POST /api/portfolios/:id/scenario` | Hypothetical market/sector/security/FX shocks; owned portfolio and `user` required |
+| `GET\|POST /api/notebooks`, `GET\|PUT\|DELETE /api/notebooks/:id` | Evidence-linked notebooks per user; updates and deletes require the current `revision` |
 | `GET /api/auth/me`, `POST /api/auth/register\|login\|logout` | Sign-in (with `AUTH=password`) |
 | `WS /ws` | Live quotes: `{"op":"sub","securities":["AAPL US Equity"]}`; trades: `{"op":"trades.sub","security":"XBTUSD Curncy"}`; chat: `{"op":"chat.join","room":"#general","user":"ME"}`; alerts and paper fills: `{"op":"hello","user":"ME"}` |
 
@@ -243,6 +288,25 @@ npm run build
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to add a data provider or a function, and
 [PLUGINS.md](PLUGINS.md) for extending the terminal without changing its code.
+
+## Development direction
+
+This research-lab release is the first step toward a broader terminal. Further
+work should be measured against complete investor workflows: time to a sourced
+analysis, visible coverage gaps, accurate units and timestamps, reproducibility
+of saved research, and reliable monitoring of a thesis over time.
+
+- **Data quality:** provider provenance and freshness, corporate-action-aware
+  history, filing revisions, and point-in-time fundamentals for unbiased studies.
+- **Research monitoring:** connect catalysts and saved assumptions to earnings,
+  filings, news changes and explicit user-controlled alerts.
+- **Repeatable studies:** walk-forward evaluation, transaction-cost models,
+  benchmark comparisons and reusable research workflows.
+- **Durable collaboration:** notebook history, shared evidence, recovery/backups,
+  and shared persistent storage for cloud deployments.
+- **Broader market coverage:** evaluate licensed exchange data, fundamentals and
+  execution integrations against documented coverage, latency and entitlement
+  requirements. No new paid service is configured by this release.
 
 ## License
 

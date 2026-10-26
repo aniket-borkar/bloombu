@@ -7,7 +7,7 @@ import { sectorOf } from "../terminal/sectors";
 import { DataState, DataTable, KeyValues, OptionBar, Section, openLink, useOptions, type ScreenProps } from "./common";
 
 /** DES: company description and key statistics (quote-based for non-equities). */
-export function DesScreen({ security }: ScreenProps) {
+export function DesScreen({ panel, security }: ScreenProps) {
   const state = useData(`profile|${security}`, (s) => api.profile(security!, s));
   const p = state.data;
   if (!p) return <DataState state={state} what="DESCRIPTION" />;
@@ -15,6 +15,7 @@ export function DesScreen({ security }: ScreenProps) {
   return (
     <div className="two-col" data-testid="des-screen">
       <Section title={p.name} right={p.source}>
+        {sectorOf(security) === "Equity" && <div className="toolbar"><button className="tool-button" onClick={() => usePanels.getState().execute(panel.id, { kind: "function", fn: "VAL" })}>Open valuation lab</button><button className="tool-button" onClick={() => usePanels.getState().execute(panel.id, { kind: "function", fn: "NOTE" })}>Research notebook</button></div>}
         {p.summary ? (
           <p className="prose">{p.summary}</p>
         ) : (

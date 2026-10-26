@@ -22,6 +22,7 @@ const defs: FunctionDef[] = [
   { code: "HDS", name: "Holdings: Holders", security: true },
   { code: "DVD", name: "Dividend/Split Summary", security: true },
   { code: "RV", name: "Relative Valuation", security: true },
+  { code: "VAL", name: "Valuation Lab", security: true },
   { code: "OMON", name: "Option Monitor", security: true },
   { code: "MGMT", name: "Management", security: true },
   { code: "SPLC", name: "Supply Chain", security: true },
@@ -61,6 +62,8 @@ const defs: FunctionDef[] = [
   { code: "SHEET", name: "Live Spreadsheet", security: false },
   { code: "BQL", name: "Query Language", security: false },
   { code: "PORT", name: "Portfolio & Risk Analytics", security: false },
+  { code: "SCEN", name: "Portfolio Scenario Lab", security: false },
+  { code: "NOTE", name: "Research Notebook", security: false },
   { code: "PRTU", name: "Portfolio Administration", security: false },
   { code: "TRADE", name: "Paper Trading", security: false },
   { code: "SRC", name: "Data Sources & Usage", security: false },
@@ -78,7 +81,7 @@ export function isFunction(code: string): boolean {
 
 /** Numbered security menu shown after a security is loaded, per sector. */
 export const SECURITY_MENUS: Record<Sector, string[]> = {
-  Equity: ["DES", "GP", "GIP", "BQ", "CN", "FA", "EE", "ERN", "ANR", "HDS", "DVD", "RV", "OMON", "MGMT", "SPLC", "RELS", "BETA", "TRA", "HP", "QR", "BTST"],
+  Equity: ["DES", "GP", "GIP", "BQ", "CN", "FA", "VAL", "EE", "ERN", "ANR", "HDS", "DVD", "RV", "OMON", "MGMT", "SPLC", "RELS", "BETA", "TRA", "HP", "QR", "BTST"],
   Index: ["DES", "GP", "GIP", "MEMB", "IMAP", "WEI", "CN", "HP", "TRA", "BTST"],
   Curncy: ["DES", "GP", "GIP", "QR", "FXC", "FRD", "OVML", "WCRS", "HP", "BTST"],
   Comdty: ["DES", "GP", "GIP", "CT", "GLCO", "HP", "BTST"],

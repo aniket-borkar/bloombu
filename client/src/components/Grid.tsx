@@ -40,6 +40,8 @@ interface Props {
   readOnly?: boolean;
   /** Show spreadsheet row numbers and column letters (A, B, C). */
   sheetHeaders?: boolean;
+  /** Keep a new result table from scrolling its editor away from the headline. */
+  scrollOnMount?: boolean;
   testId?: string;
 }
 
@@ -68,6 +70,7 @@ export function Grid({
   minRows = 1,
   readOnly = false,
   sheetHeaders = false,
+  scrollOnMount = true,
   testId = "grid",
 }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -75,6 +78,7 @@ export function Grid({
   const [anchor, setAnchor] = useState<CellPos>({ row: 0, col: 0 });
   const [editing, setEditing] = useState<{ pos: CellPos; value: string } | null>(null);
   const dragging = useRef(false);
+  const selectionMoved = useRef(false);
 
   const editableCol = (c: number) => !readOnly && !!onChange && columns[c]?.editable !== false;
   const rowCount = Math.max(rows.length + (!readOnly && onChange ? 1 : 0), minRows);
@@ -86,8 +90,10 @@ export function Grid({
   }, [sel.r0, sel.c0, sel.r1, sel.c1, active.row, active.col]);
 
   useEffect(() => {
+    if (!scrollOnMount && !selectionMoved.current && active.row === 0 && active.col === 0) return;
+    selectionMoved.current = true;
     ref.current?.querySelector(`[data-cell="${active.row}:${active.col}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }, [active.row, active.col]);
+  }, [active.row, active.col, scrollOnMount]);
 
   const write = useCallback(
     (updates: { row: number; col: number; value: string }[]) => {

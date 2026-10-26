@@ -30,6 +30,9 @@ import { FrdScreen } from "./FrdScreen";
 import { TradeScreen } from "./TradeScreen";
 import { SrcScreen } from "./SrcScreen";
 import { BriefScreen } from "./BriefScreen";
+import { ScenarioScreen } from "./ScenarioScreen";
+import { ValuationScreen } from "./ValuationScreen";
+import { NotebookScreen } from "./NotebookScreen";
 import { BqlScreen, SheetScreen } from "./SheetScreens";
 import { PortScreen, PrtuScreen } from "./PortfolioScreens";
 import { BetaScreen, CtScreen, HpScreen, OmonScreen, OvmlScreen, TraScreen, YasScreen } from "./PriceScreens";
@@ -60,6 +63,7 @@ export const SCREEN_REGISTRY: Record<string, ScreenDef> = {
   HDS: { component: HdsScreen, sectors: EQUITY },
   DVD: { component: DvdScreen, sectors: EQUITY },
   RV: { component: RvScreen, sectors: EQUITY },
+  VAL: { component: ValuationScreen, sectors: EQUITY },
   OMON: { component: OmonScreen, sectors: EQUITY },
   MGMT: { component: MgmtScreen, sectors: EQUITY },
   RELS: { component: RelsScreen, sectors: EQUITY },
@@ -101,6 +105,8 @@ export const SCREEN_REGISTRY: Record<string, ScreenDef> = {
   SHEET: { component: SheetScreen },
   BQL: { component: BqlScreen },
   PORT: { component: PortScreen },
+  SCEN: { component: ScenarioScreen },
+  NOTE: { component: NotebookScreen },
   PRTU: { component: PrtuScreen },
   ...Object.fromEntries(UNAVAILABLE_FUNCTIONS.map((fn) => [fn, { component: UnavailableScreen }])),
 };
