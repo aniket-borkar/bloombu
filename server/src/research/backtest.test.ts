@@ -29,6 +29,17 @@ describe("backtest", () => {
     expect(r.stats.totalReturnPct).toBeCloseTo((0.999 * 1.1 * 0.999 - 1) * 100, 8);
   });
 
+  it("includes entry costs when classifying individual trades as wins or losses", () => {
+    const r = backtest({
+      bars: bars([[100, 100], [100, 100.15], [100.15, 100.15]]),
+      entry: [true, false, false], exit: null, direction: "long", costBps: 10,
+    });
+    expect(r.stats.totalReturnPct).toBeCloseTo(-0.05019985);
+    expect(r.trades[0].returnPct).toBeCloseTo(r.stats.totalReturnPct);
+    expect(r.stats.winRatePct).toBe(0);
+    expect(r.stats.avgTradePct).toBeCloseTo(r.stats.totalReturnPct);
+  });
+
   it("uses 'entry no longer true' as the default exit and reports open trades", () => {
     const r = backtest({ bars: b, entry: [true, true, false, true, true], exit: null, direction: "long", costBps: 0 });
     expect(r.trades.map((t) => [t.entryPrice, t.exitPrice, t.open])).toEqual([

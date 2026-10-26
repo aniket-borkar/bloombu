@@ -61,12 +61,11 @@ export function QrScreen({ panel, security }: ScreenProps) {
       if (m.security !== sec) return;
       setTrades((t) => [m.trade as Trade, ...t].slice(0, MAX_TRADES));
     });
-    const offOpen = quoteStream.onOpen(() => quoteStream.send({ op: "trades.sub", security: sec }));
+    const offTrades = quoteStream.subscribeTrades(sec);
     return () => {
       offSnapshot();
       offTrade();
-      offOpen();
-      quoteStream.send({ op: "trades.unsub", security: sec });
+      offTrades();
     };
   }, [security]);
 

@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import { cryptoPair, normalizeSecurity } from "../symbology.js";
 import type { Bar, Interval, Quote, Trade } from "../types.js";
 import type { ProviderPlugin } from "./DataProvider.js";
+import { UsageMeter } from "./usage.js";
 
 const REST_URL = "https://api.exchange.coinbase.com";
 const WS_URL = "wss://ws-feed.exchange.coinbase.com";
@@ -9,6 +10,7 @@ const GRANULARITY: Partial<Record<Interval, number>> = { "1m": 60, "5m": 300, "1
 const CANDLES_PER_REQUEST = 300;
 const MAX_PAGES = 8;
 const NAMES: Record<string, string> = { BTC: "Bitcoin", ETH: "Ethereum", SOL: "Solana" };
+const RATE_LIMIT = { perMinute: 500 };
 
 interface RestTicker {
   price?: string;
@@ -108,12 +110,15 @@ export function createCoinbaseProvider(opts: CoinbaseOptions = {}): ProviderPlug
   const restUrl = opts.restUrl ?? REST_URL;
   const wsUrl = opts.wsUrl ?? WS_URL;
   const reconnectMs = opts.reconnectMs ?? 5000;
+  let meter = new UsageMeter();
 
   async function get<T>(path: string): Promise<T | null> {
-    const res = await fetch(`${restUrl}${path}`, { headers: { accept: "application/json", "user-agent": "BLMBU Terminal" } });
-    if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`coinbase ${path.split("?")[0]} returned ${res.status}`);
-    return (await res.json()) as T;
+    return meter.run("coinbase", RATE_LIMIT, async () => {
+      const res = await fetch(`${restUrl}${path}`, { headers: { accept: "application/json", "user-agent": "BLMBU Terminal" } });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`coinbase ${path.split("?")[0]} returned ${res.status}`);
+      return (await res.json()) as T;
+    });
   }
 
   async function restQuote(security: string): Promise<Quote | null> {
@@ -230,12 +235,14 @@ export function createCoinbaseProvider(opts: CoinbaseOptions = {}): ProviderPlug
   return {
     id: "coinbase",
     sectors: ["Curncy"],
-    rateLimit: { perMinute: 500 },
+    rateLimit: RATE_LIMIT,
+    setUsageMeter: (next) => { meter = next; },
     covers: (security) => cryptoPair(security) !== null,
 
     async quotes(securities) {
-      const res = await Promise.all(securities.map((s) => restQuote(s)));
-      return res.filter((q): q is Quote => !!q);
+      const res = await Promise.allSettled(securities.map((s) => restQuote(s)));
+      if (res.length && res.every((r) => r.status === "rejected")) throw (res[0] as PromiseRejectedResult).reason;
+      return res.flatMap((r) => r.status === "fulfilled" && r.value ? [r.value] : []);
     },
 
     async history(security, interval, from, to) {

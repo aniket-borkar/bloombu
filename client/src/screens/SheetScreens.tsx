@@ -3,6 +3,7 @@ import { ApiError, api, fetchHistory, useData, useLiveQuotes, type Quote } from 
 import { Grid, type CellPos, type GridColumn } from "../components/Grid";
 import { usePanels } from "../store/panels";
 import { parseCommand } from "../terminal/commandParser";
+import { createAutosave } from "../terminal/autosave";
 import { FormulaError, computeSheet, formatCell, type Cell } from "../terminal/formula";
 import type { HistoryRange } from "../terminal/functions";
 import { onPendingBql, takePendingBql, takePendingSheet } from "../terminal/sheetState";
@@ -49,13 +50,50 @@ export function SheetScreen({ panel }: ScreenProps) {
   const [status, setStatus] = useState("");
   const [newName, setNewName] = useState("");
   const [armed, setArmed] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [active, setActive] = useState<CellPos>({ row: 0, col: 0 });
   const [bdp, setBdp] = useState(() => new Map<string, Cell>());
   const [bdh, setBdh] = useState(() => new Map<string, Cell[][] | FormulaError>());
   const inflight = useRef(new Set<string>());
   const loadedName = useRef<string | null>(null);
+  const mounted = useRef(true);
+  const saver = useMemo(
+    () => createAutosave(async (doc: { user: string; name: string; cells: string[][] }) => {
+      if (mounted.current && loadedName.current === doc.name) setStatus("Saving...");
+      try {
+        await api.docs.put(doc.user, "sheet", doc.name, { cells: doc.cells });
+        if (mounted.current && loadedName.current === doc.name) setStatus(`Saved ${doc.name}`);
+      } catch (e) {
+        if (mounted.current) setStatus(`Save failed: ${(e as Error).message}`);
+        throw e;
+      }
+    }),
+    [],
+  );
   const sheets = list.data ?? [];
   useOptions(panel, sheets.length);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      void saver.flush().catch(() => {});
+    };
+  }, [saver]);
+
+  const openSheet = async (nextName: string) => {
+    if (busy || nextName === name) return;
+    try {
+      await saver.flush();
+    } catch {
+      // Keep the current draft editable when its save cannot complete.
+      return;
+    }
+    loadedName.current = null;
+    setName(nextName);
+    setStatus(`Opening ${nextName}...`);
+    setArmed(false);
+  };
 
   // Open the first sheet (or keep the example until the user saves one).
   useEffect(() => {
@@ -64,24 +102,33 @@ export function SheetScreen({ panel }: ScreenProps) {
 
   useEffect(() => {
     if (!name || loadedName.current === name) return;
-    api.docs
-      .get<{ cells: string[][] }>(user, "sheet", name)
-      .then((doc) => {
+    const ctrl = new AbortController();
+    let current = true;
+    void (async () => {
+      try {
+        // Finish writes before reading, including when switching back to a sheet.
+        await saver.flush();
+        if (!current) return;
+        const doc = await api.docs.get<{ cells: string[][] }>(user, "sheet", name, ctrl.signal);
+        if (!current) return;
         loadedName.current = name;
         setRaw(Array.isArray(doc?.cells) ? doc.cells : []);
         setStatus(`Opened ${name}`);
-      })
-      .catch((e) => setStatus((e as Error).message));
-  }, [name, user]);
+      } catch (e) {
+        if (current) setStatus((e as Error).message);
+      }
+    })();
+    return () => {
+      current = false;
+      ctrl.abort();
+    };
+  }, [name, user, saver]);
 
   useEffect(() => {
     if (panel.option === null) return;
     const s = sheets[panel.option];
     usePanels.getState().setOption(panel.id, null);
-    if (s) {
-      loadedName.current = null;
-      setName(s.name);
-    }
+    if (s) void openSheet(s.name);
   }, [panel.option]);
 
   const data = useMemo(
@@ -177,48 +224,61 @@ export function SheetScreen({ panel }: ScreenProps) {
     });
   }, [live]);
 
-  // Autosave.
-  useEffect(() => {
-    if (!name || loadedName.current !== name) return;
-    const t = setTimeout(() => {
-      setStatus("Saving...");
-      api.docs
-        .put(user, "sheet", name, { cells: raw })
-        .then(() => setStatus(`Saved ${name}`))
-        .catch((e) => setStatus(`Save failed: ${(e as Error).message}`));
-    }, 800);
-    return () => clearTimeout(t);
-  }, [raw]);
+  const editCells = (next: string[][]) => {
+    if (busy) return;
+    const cells = next.map((r) => [...r]);
+    setRaw(cells);
+    if (name && loadedName.current === name) {
+      setStatus("Unsaved changes");
+      saver.schedule({ user, name, cells });
+    }
+  };
 
   const create = async () => {
     const n = newName.trim();
-    if (!n) return;
-    await api.docs.put(user, "sheet", n, { cells: name ? [] : raw });
-    loadedName.current = null;
-    setName(n);
-    setNewName("");
-    setVersion((v) => v + 1);
+    if (busy || !n) return;
+    setBusy(true);
+    try {
+      await saver.flush();
+      await api.docs.put(user, "sheet", n, { cells: name ? [] : raw });
+      loadedName.current = null;
+      setName(n);
+      setNewName("");
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const remove = async () => {
-    if (!name) return;
+    if (busy || !name) return;
     if (!armed) {
       setArmed(true);
       setStatus(`Click Delete again to delete ${name}`);
       return;
     }
-    await api.docs.remove(user, "sheet", name);
-    setArmed(false);
-    loadedName.current = null;
-    setName(null);
-    setRaw(EXAMPLE);
-    setVersion((v) => v + 1);
+    setBusy(true);
+    try {
+      await saver.flush();
+      await api.docs.remove(user, "sheet", name);
+      setArmed(false);
+      loadedName.current = null;
+      setName(null);
+      setRaw(EXAMPLE);
+      setVersion((v) => v + 1);
+    } catch (e) {
+      setStatus((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const cols = Math.max(10, result.extent.cols + 2, ...raw.map((r) => r.length + 1));
   const rows = Math.max(30, result.extent.rows + 5);
   const columns: GridColumn[] = Array.from({ length: cols }, (_, i) => ({ key: columnName(i), label: columnName(i), width: i === 0 ? "18ch" : "12ch" }));
-  const gridRows = Array.from({ length: raw.length }, (_, r) => Array.from({ length: cols }, (_, c) => raw[r]?.[c] ?? ""));
+  const gridRows = Array.from({ length: result.extent.rows }, (_, r) => Array.from({ length: cols }, (_, c) => raw[r]?.[c] ?? ""));
   const activeRaw = raw[active.row]?.[active.col] ?? "";
   const activeValue = result.value(active.row, active.col);
 
@@ -230,21 +290,19 @@ export function SheetScreen({ panel }: ScreenProps) {
           <button
             key={s.name}
             className={`chart-opt${s.name === name ? " active" : ""}`}
+            disabled={busy}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              loadedName.current = null;
-              setName(s.name);
-            }}
+            onClick={() => void openSheet(s.name)}
           >
             <span className="chart-opt-num">{i + 1})</span> {s.name}
           </button>
         ))}
         {!name && <span className="gray">Example (unsaved). Name it to save:</span>}
-        <input className="form-input" placeholder="New sheet name" value={newName} data-testid="sheet-new" onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void create()} />
-        <button className="tool-button" onClick={() => void create()}>
+        <input className="form-input" placeholder="New sheet name" value={newName} disabled={busy} data-testid="sheet-new" onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && void create()} />
+        <button className="tool-button" disabled={busy} onClick={() => void create()}>
           Create
         </button>
-        <button className="tool-button danger" onClick={() => void remove()} disabled={!name}>
+        <button className="tool-button danger" onClick={() => void remove()} disabled={busy || !name}>
           Delete
         </button>
         <span className="gray" data-testid="sheet-status">
@@ -263,7 +321,8 @@ export function SheetScreen({ panel }: ScreenProps) {
         sheetHeaders
         minRows={rows}
         testId="sheet-grid"
-        onChange={(next) => setRaw(next.map((r) => [...r]))}
+        readOnly={busy || (!!name && loadedName.current !== name)}
+        onChange={editCells}
         onSelectionChange={(_s, a) => setActive(a)}
         render={(r, c) => {
           const v = result.value(r, c);

@@ -27,7 +27,7 @@ import type {
   Valuation,
   YieldCurve,
 } from "../types.js";
-import type { RateLimit } from "./usage.js";
+import type { RateLimit, UsageMeter } from "./usage.js";
 
 export interface ProviderPlugin {
   id: string;
@@ -39,6 +39,12 @@ export interface ProviderPlugin {
   covers?(security: string): boolean;
   /** Free-tier request budget; the router skips this provider rather than exceed it. */
   rateLimit?: RateLimit;
+  /**
+   * Providers with request fanout use this meter at each outgoing HTTP request,
+   * including native subscription snapshots. The router then avoids metering
+   * the aggregate operation a second time. Other providers count one call.
+   */
+  setUsageMeter?(meter: UsageMeter): void;
 
   /** Return quotes for the securities it can price; omit the rest so the router can fall back. */
   quotes?(securities: string[]): Promise<Quote[]>;

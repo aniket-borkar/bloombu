@@ -80,7 +80,9 @@ export function extractFacts(raw) {
       ? merge(entries, (e) => !e.start && e.fp === "FY" && /^10-K/.test(e.form ?? ""))
       : merge(entries, (e) => /^10-K/.test(e.form ?? "") && isYear(lengthDays(e)));
     let quarterly = m.instant ? merge(entries, (e) => !e.start) : merge(entries, (e) => isQuarter(lengthDays(e)));
-    if (!m.instant && m.unit !== "USD/shares") {
+    // Monetary totals are additive. EPS and weighted-average share counts are
+    // not: subtracting their year-to-date or annual averages invents quarters.
+    if (!m.instant && m.unit === "USD") {
       const yearToDate = merge(entries, (e) => !!e.start && isYearToDate(lengthDays(e)), (e) => `${e.start}|${e.end}`);
       quarterly = fillQuarters(quarterly, yearToDate, annual);
     }

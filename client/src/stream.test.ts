@@ -103,6 +103,42 @@ describe("QuoteStream", () => {
     vi.advanceTimersByTime(60_000);
     expect(FakeSocket.instances).toHaveLength(1);
   });
+
+  it("shares a trade subscription until the final panel leaves, including after reconnect", () => {
+    const s = new QuoteStream(() => "ws://x/ws");
+    const first = s.subscribeTrades("AAPL US Equity");
+    const second = s.subscribeTrades("AAPL US Equity");
+    last().open();
+    expect(last().sent).toEqual([{ op: "trades.sub", security: "AAPL US Equity" }]);
+    first();
+    first(); // Cleanup is idempotent.
+    expect(last().sent).toHaveLength(1);
+    last().close();
+    vi.advanceTimersByTime(1000);
+    last().open();
+    expect(last().sent).toEqual([{ op: "trades.sub", security: "AAPL US Equity" }]);
+    second();
+    expect(last().sent[1]).toEqual({ op: "trades.unsub", security: "AAPL US Equity" });
+    last().close();
+    vi.advanceTimersByTime(60_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+  });
+
+  it("replays the shared trade snapshot and recent fills to a newly opened panel", () => {
+    const s = new QuoteStream(() => "ws://x/ws");
+    const stop = s.subscribeTrades("AAPL US Equity");
+    last().open();
+    last().onmessage?.({ data: JSON.stringify({ type: "trades", security: "AAPL US Equity", available: true, trades: [] }) });
+    last().onmessage?.({ data: JSON.stringify({ type: "trade", security: "AAPL US Equity", trade: { price: 200 } }) });
+    const panel = vi.fn();
+    const off = s.on("trades", panel);
+    expect(panel).toHaveBeenCalledExactlyOnceWith({ type: "trades", security: "AAPL US Equity", available: true, trades: [{ price: 200 }] });
+    off();
+    stop();
+    last().onmessage?.({ data: JSON.stringify({ type: "trades", security: "AAPL US Equity", available: true, trades: [{ price: 199 }] }) });
+    s.on("trades", panel);
+    expect(panel).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("connectionLabel", () => {

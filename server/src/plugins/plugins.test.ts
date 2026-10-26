@@ -363,6 +363,24 @@ describe("EDGAR filing text and facts", async () => {
     ]);
     expect(m.capex.quarterly).toEqual([{ end: "2024-12-31", value: 3 }]);
   });
+
+  it.each([false, true])("does not subtract weighted-average shares to invent quarters (standalone=%s)", (standalone) => {
+    const e = (start: string, end: string, form = "10-Q") => ({ start, end, val: 100e6, form, fp: form === "10-K" ? "FY" : "Q", filed: "2026-02-01" });
+    const reported = [e("2025-01-01", "2025-03-31")];
+    if (standalone) reported.push(e("2025-04-01", "2025-06-30"), e("2025-07-01", "2025-09-30"));
+    const raw = {
+      facts: {
+        "us-gaap": {
+          WeightedAverageNumberOfDilutedSharesOutstanding: {
+            units: { shares: [...reported, e("2025-01-01", "2025-06-30"), e("2025-01-01", "2025-09-30"), e("2025-01-01", "2025-12-31", "10-K")] },
+          },
+        },
+      },
+    };
+    const metric = facts.extractFacts(raw).metrics.dilutedShares;
+    expect(metric.annual).toEqual([{ end: "2025-12-31", value: 100, yoyPct: null }]);
+    expect(metric.quarterly).toEqual(reported.map((point) => ({ end: point.end, value: 100 })));
+  });
 });
 
 describe("plugin routes", () => {

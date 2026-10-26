@@ -68,8 +68,8 @@ export function backtest({ bars, entry, exit, direction, costBps }: BacktestInpu
       entryPrice = b.o;
       mark = b.o;
       entryIdx = i;
-      equity *= 1 - cost;
       entryEquity = equity;
+      equity *= 1 - cost;
     } else if (pending === "exit") {
       equity *= 1 + pos * (b.o / mark - 1);
       equity *= 1 - cost;

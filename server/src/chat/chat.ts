@@ -120,10 +120,11 @@ export class ChatService {
       (this.db
         .prepare("SELECT id, room, user, text, ts FROM chat_messages WHERE room = ? ORDER BY id DESC LIMIT 1")
         .get(room) as ChatMessage | undefined) ?? null;
+    const escapedUser = user.replace(/[!%_]/g, "!$&");
     const dms = (
       this.db
-        .prepare("SELECT DISTINCT room FROM chat_messages WHERE room LIKE 'dm:%' AND (room LIKE ? OR room LIKE ?)")
-        .all(`dm:${user}:%`, `dm:%:${user}`) as { room: string }[]
+        .prepare("SELECT DISTINCT room FROM chat_messages WHERE room LIKE 'dm:%' AND (room LIKE ? ESCAPE '!' OR room LIKE ? ESCAPE '!')")
+        .all(`dm:${escapedUser}:%`, `dm:%:${escapedUser}`) as { room: string }[]
     ).map((r) => r.room);
     return [...PUBLIC_ROOMS, ...dms].map((room) => {
       const last = latest(room);

@@ -22,22 +22,13 @@ export class ProviderRouter {
     readonly plugins: ProviderPlugin[],
     private log: (msg: string) => void = console.error,
     readonly meter: UsageMeter = new UsageMeter(),
-  ) {}
+  ) {
+    for (const plugin of plugins) plugin.setUsageMeter?.(meter);
+  }
 
   /** One metered provider call; providers at their free-tier limit are skipped. */
   private async call<T>(plugin: ProviderPlugin, capability: Capability, fn: () => Promise<T>): Promise<T> {
-    if (!this.meter.allow(plugin.id, plugin.rateLimit)) {
-      throw new RateLimited(`${plugin.id} is at its free-tier limit (${plugin.rateLimit?.perMinute ?? plugin.rateLimit?.perDay} requests per ${plugin.rateLimit?.perMinute ? "minute" : "day"}) for ${capability}`);
-    }
-    const t0 = Date.now();
-    try {
-      const result = await fn();
-      this.meter.record(plugin.id, true, Date.now() - t0);
-      return result;
-    } catch (err) {
-      this.meter.record(plugin.id, false, Date.now() - t0);
-      throw err;
-    }
+    return plugin.setUsageMeter ? fn() : this.meter.run(plugin.id, plugin.rateLimit, fn);
   }
 
   private failed(plugin: ProviderPlugin, capability: Capability, err: unknown): void {

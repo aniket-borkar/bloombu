@@ -2,10 +2,12 @@ import WebSocket from "ws";
 import type { ProviderPlugin } from "./DataProvider.js";
 import type { Quote, SearchResult, Trade } from "../types.js";
 import { fromYahoo, normalizeSecurity, parseSecurity, toYahoo } from "../symbology.js";
+import { RateLimited, UsageMeter } from "./usage.js";
 
 const BASE = "https://finnhub.io/api/v1";
 const WS_URL = "wss://ws.finnhub.io";
 const US_EXCHANGES = new Set(["US", "UN", "UW", "UQ", "UA", "UP"]);
+const RATE_LIMIT = { perMinute: 55 };
 
 interface FinnhubQuote {
   c: number;
@@ -51,13 +53,17 @@ function toQuote(security: string, q: FinnhubQuote): Quote {
 }
 
 export function createFinnhubProvider(apiKey: string): ProviderPlugin {
+  let meter = new UsageMeter();
+
   async function get<T>(path: string, params: Record<string, string>): Promise<T> {
     const url = new URL(BASE + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     url.searchParams.set("token", apiKey);
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Finnhub ${res.status}`);
-    return (await res.json()) as T;
+    return meter.run("finnhub", RATE_LIMIT, async () => {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Finnhub ${res.status}`);
+      return (await res.json()) as T;
+    });
   }
 
   async function quote(security: string): Promise<Quote | null> {
@@ -70,7 +76,7 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
 
   // One shared trade socket; each symbol maps to the listeners and last snapshot for it.
   let socket: WebSocket | null = null;
-  const watchers = new Map<string, { security: string; base: Quote | null; listeners: Set<(q: Quote) => void> }>();
+  const watchers = new Map<string, { security: string; base: Quote | null; listeners: Set<(q: Quote) => void>; retry?: ReturnType<typeof setTimeout> }>();
   const tapes = new Map<string, Set<(t: Trade) => void>>();
   const watched = (symbol: string) => watchers.has(symbol) || tapes.has(symbol);
 
@@ -114,11 +120,16 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
     id: "finnhub",
     requiresKey: "FINNHUB_API_KEY",
     sectors: ["Equity"],
-    rateLimit: { perMinute: 55 },
+    covers: (security) => usSymbol(security) !== null,
+    rateLimit: RATE_LIMIT,
+    setUsageMeter: (next) => { meter = next; },
 
     async quotes(securities) {
-      const res = await Promise.all(securities.map((s) => quote(s)));
-      return res.filter((q): q is Quote => !!q);
+      const res = await Promise.allSettled(securities.map((s) => quote(s)));
+      // Keep successful symbols when the remaining requests exhaust the budget;
+      // omitted symbols can then be supplied by the next provider.
+      if (res.length && res.every((r) => r.status === "rejected")) throw (res[0] as PromiseRejectedResult).reason;
+      return res.flatMap((r) => r.status === "fulfilled" && r.value ? [r.value] : []);
     },
 
     async search(query) {
@@ -144,13 +155,25 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
           w = { security: key, base: null, listeners: new Set() };
           watchers.set(symbol, w);
           const entry = w;
-          quote(key)
-            .then((q) => {
-              if (!q) return;
-              entry.base = q;
-              for (const l of entry.listeners) l(q);
-            })
-            .catch((err) => console.error("finnhub snapshot", err.message));
+          const retry = () => {
+            if (watchers.get(symbol) !== entry) return;
+            entry.retry = setTimeout(snapshot, 5000);
+            entry.retry.unref();
+          };
+          const snapshot = () => {
+            void quote(key)
+              .then((q) => {
+                if (watchers.get(symbol) !== entry) return;
+                if (!q) return retry();
+                entry.base = q;
+                for (const l of entry.listeners) l(q);
+              })
+              .catch((err) => {
+                if (!(err instanceof RateLimited)) console.error("finnhub snapshot", err.message);
+                retry();
+              });
+          };
+          snapshot();
           if (!tapes.has(symbol) && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "subscribe", symbol }));
         }
         w.listeners.add(onQuote);
@@ -162,6 +185,7 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
           if (!w) continue;
           w.listeners.delete(onQuote);
           if (w.listeners.size) continue;
+          if (w.retry) clearTimeout(w.retry);
           watchers.delete(symbol);
           if (!watched(symbol) && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "unsubscribe", symbol }));
         }

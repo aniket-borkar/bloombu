@@ -39,6 +39,14 @@ describe("AuthService", () => {
     expect(loadConfig({ AUTH: "password", AUTH_SIGNUP: "closed" })).toMatchObject({ auth: "password", authSignupOpen: false });
     expect(() => loadConfig({ AUTH: "oauth" })).toThrow(/Unknown AUTH/);
   });
+
+  it("ignores malformed cookie values without dropping valid cookies", () => {
+    expect(parseCookies("broken=%; blmbu_session=abc%3D; truncated=%E0%A4%A; other=ok")).toEqual({
+      blmbu_session: "abc=",
+      other: "ok",
+    });
+    expect(parseCookies("blmbu_session=%")).toEqual({});
+  });
 });
 
 describe("sign-in gate", () => {
@@ -96,5 +104,21 @@ describe("sign-in gate", () => {
     const ws = new WebSocket(url, { headers: { cookie } });
     await new Promise((r) => ws.once("open", r));
     ws.close();
+  });
+
+  it("rejects malformed session cookies over HTTP and WebSocket without disrupting the server", async () => {
+    expect((await call("GET", "/api/portfolios?user=ALICE", undefined, "blmbu_session=%")).status).toBe(401);
+    const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`;
+    const malformed = new WebSocket(url, { headers: { cookie: "blmbu_session=%" } });
+    await expect(new Promise((resolve, reject) => (malformed.once("open", resolve), malformed.once("error", reject)))).rejects.toThrow(/401/);
+    expect((await call("GET", "/api/health")).status).toBe(200);
+
+    const cookie = cookieFrom((await call("POST", "/api/auth/register", { name: "cookie-user", password: "cookie-pass-12" })).setCookie);
+    const ws = new WebSocket(url, { headers: { cookie: `unrelated=%; ${cookie}` } });
+    await new Promise((resolve, reject) => (ws.once("open", resolve), ws.once("error", reject)));
+    await new Promise<void>((resolve) => {
+      ws.once("close", () => resolve());
+      ws.close();
+    });
   });
 });

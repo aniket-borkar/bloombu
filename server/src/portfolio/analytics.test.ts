@@ -53,6 +53,25 @@ function input(over: Partial<AnalyticsInput>): AnalyticsInput {
 const A = "AAA US Equity";
 const B = "BBB US Equity";
 
+describe("analyzePortfolio: duplicate lots", () => {
+  it("matches merged holdings while preserving each lot's valuation and contribution", () => {
+    const h = (security: string, quantity: number) => ({ security, quantity, weight: null, cost: null, acquired: null });
+    const common = input({
+      quotes: new Map([[A, quote(A, 120, 99)], [B, quote(B, 100, 100)]]),
+      bars: new Map([[A, bars([100, 110, 99, 120])], [B, bars([100, 100, 100, 100])]]),
+    });
+    const lots = analyzePortfolio({ ...common, holdings: [h(A, 1), h(A, 9), h(B, 10)] });
+    const merged = analyzePortfolio({ ...common, holdings: [h(A, 10), h(B, 10)] });
+    expect(lots.holdings.map((r) => r.marketValue)).toEqual([120, 1080, 1000]);
+    expect(lots.performance.totalReturnPct).toBeCloseTo(10);
+    expect(lots.performance).toEqual(merged.performance);
+    expect(lots.risk).toEqual(merged.risk);
+    expect(lots.holdings[0].contributionPct! + lots.holdings[1].contributionPct!).toBeCloseTo(merged.holdings[0].contributionPct!);
+    expect(lots.correlation.securities).toEqual(merged.correlation.securities);
+    expect(lots.correlation.matrix).toEqual(merged.correlation.matrix);
+  });
+});
+
 describe("analyzePortfolio: positions in USD", () => {
   const result = analyzePortfolio(
     input({

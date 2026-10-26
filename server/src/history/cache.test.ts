@@ -14,6 +14,7 @@ let dir: string;
 let now: number;
 let calls: [number, number][];
 let fail: boolean;
+const caches = new Set<HistoryCache>();
 
 const mock = createMockProvider(() => now);
 const fetcher = async (security: string, interval: Interval, from: Date, to: Date): Promise<Bar[]> => {
@@ -22,7 +23,16 @@ const fetcher = async (security: string, interval: Interval, from: Date, to: Dat
   return mock.history!(security, interval, from, to);
 };
 
-const make = (file = path.join(dir, "cache.db")) => new HistoryCache(file, fetcher, () => now, () => {});
+const make = (file = path.join(dir, "cache.db")) => {
+  const cache = new HistoryCache(file, fetcher, () => now, () => {});
+  caches.add(cache);
+  return cache;
+};
+
+const close = (cache: HistoryCache) => {
+  cache.close();
+  caches.delete(cache);
+};
 
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "blmbu-cache-"));
@@ -32,6 +42,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const cache of caches) close(cache);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -79,21 +90,20 @@ describe("HistoryCache", () => {
       () => now,
       () => {},
     );
+    caches.add(empty);
     await empty.get("SPX Index", "1d", T0 - 10 * DAY, T0);
     await empty.get("SPX Index", "1d", T0 - 10 * DAY, T0);
     expect(calls).toHaveLength(1);
-    empty.close();
   });
 
   it("persists across instances", async () => {
     const file = path.join(dir, "persist.db");
     const a = make(file);
     const bars = await a.get("AAPL US Equity", "1h", T0 - 2 * DAY, T0);
-    a.close();
+    close(a);
     const b = make(file);
     expect(await b.get("AAPL US Equity", "1h", T0 - 2 * DAY, T0)).toEqual(bars);
     expect(calls).toHaveLength(1);
-    b.close();
   });
 
   it("serves stale cache when a refresh fails, but throws with nothing cached", async () => {

@@ -257,22 +257,24 @@ export function analyzePortfolio(input: AnalyticsInput): PortfolioAnalytics {
     return dates.map((_, i) => (finite(c[i]) && finite(b[i]) && b[i] !== 0 ? c[i]! / b[i]! : null));
   };
 
-  const valueSeries = new Map<string, (number | null)[]>();
+  // A portfolio can contain several lots of the same security. Keep each
+  // lot's quantity in its own series instead of overwriting it by ticker.
+  const valueSeries = new Map<Row, (number | null)[]>();
   for (const r of inRange) {
     const px = alignForward(input.bars.get(r.security)!, allDates);
     const fx = fxSeries(r.currency, allDates);
     valueSeries.set(
-      r.security,
+      r,
       px.map((p, i) => (finite(p) && finite(fx[i]) ? r.q! * p * r.priceScale * fx[i]! : null)),
     );
   }
-  let startIdx = allDates.findIndex((_, i) => inRange.every((r) => finite(valueSeries.get(r.security)![i])));
+  let startIdx = allDates.findIndex((_, i) => inRange.every((r) => finite(valueSeries.get(r)![i])));
   if (startIdx < 0) startIdx = allDates.length;
   if (startIdx > 0 && startIdx < allDates.length) {
     warnings.push(`Performance starts ${allDates[startIdx]}, the first date with prices for every holding.`);
   }
   const dates = allDates.slice(startIdx);
-  const V = dates.map((_, j) => inRange.reduce((s, r) => s + valueSeries.get(r.security)![startIdx + j]!, 0));
+  const V = dates.map((_, j) => inRange.reduce((s, r) => s + valueSeries.get(r)![startIdx + j]!, 0));
   const benchAligned = dates.length ? alignForward(input.benchmark.bars, dates) : [];
 
   const rp: number[] = [];
@@ -331,9 +333,9 @@ export function analyzePortfolio(input: AnalyticsInput): PortfolioAnalytics {
   };
 
   // ---- Per-holding returns, contribution, risk contribution ----
-  const holdingReturns = new Map<string, number[]>();
+  const holdingReturns = new Map<Row, number[]>();
   for (const r of inRange) {
-    const vs = valueSeries.get(r.security)!.slice(startIdx) as number[];
+    const vs = valueSeries.get(r)!.slice(startIdx) as number[];
     const rets: number[] = [];
     let contribution = 0;
     for (let i = 1; i < vs.length; i++) {
@@ -341,21 +343,25 @@ export function analyzePortfolio(input: AnalyticsInput): PortfolioAnalytics {
       rets.push(ret);
       contribution += V[i - 1] !== 0 ? (vs[i - 1] / V[i - 1]) * ret : 0;
     }
-    holdingReturns.set(r.security, rets);
+    holdingReturns.set(r, rets);
     r.periodReturnPct = vs.length > 1 && vs[0] !== 0 ? (vs[vs.length - 1] / vs[0] - 1) * 100 : null;
     r.contributionPct = vs.length > 1 ? contribution * 100 : null;
   }
   const varP = volD * volD;
   if (n > 2 && varP > 0 && weightsUsable) {
-    const raw = inRange.map((r) => ((r.weightPct ?? 0) / 100) * covariance(holdingReturns.get(r.security)!, rp));
+    const raw = inRange.map((r) => ((r.weightPct ?? 0) / 100) * covariance(holdingReturns.get(r)!, rp));
     const total = raw.reduce((s, x) => s + x, 0);
     inRange.forEach((r, i) => {
       r.riskContributionPct = total !== 0 ? orNull((raw[i] / total) * 100) : null;
     });
   }
 
-  const top = [...inRange].sort((a, b) => Math.abs(b.weightPct ?? 0) - Math.abs(a.weightPct ?? 0)).slice(0, 8);
-  const matrix = top.map((a) => top.map((b) => (a === b ? 1 : correlation(holdingReturns.get(a.security)!, holdingReturns.get(b.security)!))));
+  const weightsBySecurity = new Map<string, number>();
+  for (const r of inRange) weightsBySecurity.set(r.security, (weightsBySecurity.get(r.security) ?? 0) + (r.weightPct ?? 0));
+  const top = [...new Map(inRange.map((r) => [r.security, r])).values()]
+    .sort((a, b) => Math.abs(weightsBySecurity.get(b.security)!) - Math.abs(weightsBySecurity.get(a.security)!))
+    .slice(0, 8);
+  const matrix = top.map((a) => top.map((b) => (a === b ? 1 : correlation(holdingReturns.get(a)!, holdingReturns.get(b)!))));
 
   const exposures = weightsUsable
     ? {

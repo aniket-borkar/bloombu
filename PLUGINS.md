@@ -147,6 +147,10 @@ providers: [
 
 For each request, the router tries providers in priority order. It uses the first non-empty result, and falls through on errors and empty results. Plugin providers come after the built-in `PROVIDERS` as fallbacks. To give one a different priority, list its id in `PROVIDERS`, for example `PROVIDERS=my-vendor,yahoo,public`.
 
+A provider can declare `rateLimit: { perMinute: 55, perDay: 1000 }`; either limit is optional. The router reserves capacity before calling it, so concurrent operations share the budget. By default, one provider operation counts as one request.
+
+If an operation makes several HTTP requests, or native subscriptions fetch snapshots, implement `setUsageMeter(meter)` and wrap **each** outgoing request in `meter.run(providerId, rateLimit, async () => { /* fetch and parse response */ })`. This opts the provider into request-level accounting; the router then leaves metering to the provider. Cache hits and WebSocket messages do not consume HTTP request capacity. Return successful symbols from a partially completed batch so the router can try other sources for the rest.
+
 ### AI tools
 
 An AI tool is offered to the analyst's model next to the built-in tools. The model decides when to call it from its `description` and `parameters`:

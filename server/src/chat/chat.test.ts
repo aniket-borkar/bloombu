@@ -58,4 +58,24 @@ describe("ChatService", () => {
     expect(roomFor("dm:BOB:ALICE", "ALICE")).toBeNull();
     chat.close();
   });
+
+  it("treats underscores in login names literally when listing private-message previews", () => {
+    const chat = new ChatService(":memory:");
+    try {
+      chat.post(dmRoom("ALICE", "BOB"), "ALICE", "private to Alice and Bob");
+      chat.post(dmRoom("A_ICE", "BOB"), "A_ICE", "private to A_ICE and Bob");
+      chat.post(dmRoom("ALICE", "B_B"), "B_B", "private to Alice and B_B");
+
+      const dms = (user: string) => chat.rooms(user).filter(({ room }) => room.startsWith("dm:"));
+      expect(dms("A_ICE").map(({ room, last }) => [room, last?.text])).toEqual([
+        [dmRoom("A_ICE", "BOB"), "private to A_ICE and Bob"],
+      ]);
+      expect(dms("B_B").map(({ room, last }) => [room, last?.text])).toEqual([
+        [dmRoom("ALICE", "B_B"), "private to Alice and B_B"],
+      ]);
+      expect(dms("_____")).toEqual([]);
+    } finally {
+      chat.close();
+    }
+  });
 });
