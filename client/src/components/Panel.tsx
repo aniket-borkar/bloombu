@@ -6,6 +6,7 @@ import { CommandLine } from "./CommandLine";
 import { HelpScreen } from "./HelpScreen";
 import { HomeScreen } from "./HomeScreen";
 import { MenuScreen } from "./MenuScreen";
+import { PanelMenus } from "./PanelMenus";
 import { NotImplementedScreen } from "./NotImplementedScreen";
 import { SecurityScreen } from "./SecurityScreen";
 
@@ -89,23 +90,7 @@ export function Panel({ panel, focused }: { panel: PanelState; focused: boolean 
         </span>
       </div>
       <CommandLine panel={panel} focused={focused} />
-      <div className="action-bar">
-        <span className="action">
-          <span className="action-num">96)</span> Actions ▾
-        </span>
-        <span className="action">
-          <span className="action-num">97)</span> Output ▾
-        </span>
-        <span className="action">
-          <span className="action-num">98)</span> Settings ▾
-        </span>
-        <span className="spacer" />
-        {panel.pageCount > 1 && (
-          <span className="action">
-            Page {panel.page + 1}/{panel.pageCount}
-          </span>
-        )}
-      </div>
+      <PanelMenus panel={panel} focused={focused} onPopOut={() => popOut(panel, user)} />
       <div className="screen">
         <ScreenBody panel={panel} />
       </div>

@@ -93,6 +93,7 @@ interface Store {
   refocus: () => void;
   setLayout: (layout: Layout) => void;
   cycleLink: (id: number) => void;
+  setLink: (id: number, link: LinkColor | null) => void;
   setInput: (id: number, input: string) => void;
   insertSector: (id: number, sector: Sector) => void;
   go: (id: number) => void;
@@ -197,6 +198,8 @@ export const usePanels = create<Store>((set, get) => {
         const i = p.link ? LINK_COLORS.indexOf(p.link) : -1;
         return { link: i + 1 < LINK_COLORS.length ? LINK_COLORS[i + 1] : null };
       }),
+
+    setLink: (id, link) => update(id, () => ({ link })),
 
     setInput: (id, input) => update(id, () => ({ input: isQuestion(input) ? input : input.toUpperCase() })),
 
