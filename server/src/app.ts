@@ -68,6 +68,27 @@ export function createApp({ router, history, chat, now = Date.now, staticDir, ro
     res.json(router.describe());
   });
 
+  app.get("/api/stream/routes", (req, res) => {
+    res.set("Cache-Control", "no-store");
+    const input = typeof req.query.s === "string" ? req.query.s.split(",") : [];
+    if (!input.length || input.length > 200) {
+      res.status(400).json({ error: "s must list 1-200 valid securities, comma-separated" });
+      return;
+    }
+    const normalized = input.map(normalizeSecurity);
+    if (normalized.some((security) => !security)) {
+      res.status(400).json({ error: "s must list 1-200 valid securities, comma-separated" });
+      return;
+    }
+    const securities = [...new Set(normalized as string[])];
+    res.json({
+      routes: securities.map((security) => {
+        const provider = router.streamingPlugin(security)?.id;
+        return { security, provider: provider === "yahoo" || provider === "kraken" ? provider : null };
+      }),
+    });
+  });
+
   app.get("/api/quote/:security", async (req, res) => {
     const security = normalizeSecurity(req.params.security);
     if (!security) {

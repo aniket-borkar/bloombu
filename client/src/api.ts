@@ -135,7 +135,7 @@ const getJson = <T,>(url: string, signal?: AbortSignal) => request<T>(url, { sig
 const sendJson = <T,>(method: string, url: string, json?: unknown) => request<T>(url, { method, json });
 
 export const fetchQuote = (security: string, signal?: AbortSignal) =>
-  getJson<Quote>(`/api/quote/${encodeURIComponent(security)}`, signal);
+  getJson<Quote>(`/api/quote/${encodeURIComponent(security)}`, signal).then((quote) => quoteStream.seedSnapshot(quote));
 
 export const searchSecurities = (q: string, signal?: AbortSignal) =>
   getJson<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`, signal);
@@ -421,8 +421,13 @@ export function useLiveQuotes(quotes: Quote[] | null): Quote[] | null {
   useEffect(() => {
     if (!key) return;
     const unsubs = key.split("|").map((s) => quoteStream.subscribe(s, (q) => setLive((m) => ({ ...m, [q.security]: preferFreshQuote(m[q.security], q) }))));
+    for (const quote of quotes ?? []) quoteStream.seedSnapshot(quote);
     return () => unsubs.forEach((u) => u());
   }, [key]);
+
+  useEffect(() => {
+    for (const quote of quotes ?? []) quoteStream.seedSnapshot(quote);
+  }, [quotes]);
 
   return (
     quotes?.map((q) => {

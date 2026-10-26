@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { connectionLabel, useConnection } from "./store/connection";
 import { QuoteStream } from "./stream";
+import type { Quote } from "./api";
 
 class FakeSocket {
   static OPEN = 1;
@@ -178,6 +179,65 @@ const cryptoTick = (socket: FakeSocket, time = "2026-10-26T14:30:00.123456789Z",
 }) });
 
 describe("QuoteStream direct routing", () => {
+  it("accepts tied HTTP-only book and session updates without treating them as push activity", () => {
+    const stream = new QuoteStream(() => "ws://x/ws");
+    const off = stream.subscribe("AAPL US Equity", vi.fn());
+    const initial = { security: "AAPL US Equity", last: 100, bid: 99, marketState: "REGULAR", time: "2026-10-26T20:00:00Z" } as Quote;
+    stream.seedSnapshot(initial);
+    const closed = { ...initial, bid: 98, marketState: "CLOSED" };
+    expect(stream.seedSnapshot(closed)).toBe(closed);
+    expect(stream.isFresh("AAPL US Equity")).toBe(false);
+    off();
+  });
+
+  it("discovers a direct route over HTTP without waiting for the relay to open", async () => {
+    const load = vi.fn(async (securities: string[]) => ({ routes: securities.map((security) => ({ security, provider: "kraken" as const })) }));
+    const stream = new QuoteStream(() => "ws://x/ws", () => performance.now(), load);
+    const listener = vi.fn();
+    const off = stream.subscribe("XBTUSD Curncy", listener);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(load).toHaveBeenCalledExactlyOnceWith(["XBTUSD Curncy"]);
+    expect(FakeSocket.instances[0].readyState).toBe(0);
+    const direct = FakeSocket.instances[1]; direct.open(); cryptoTick(direct);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("direct");
+    expect(listener).toHaveBeenCalledOnce();
+    expect(stream.isFresh("XBTUSD Curncy")).toBe(true);
+    // A tied HTTP snapshot must not rewind a native price or become a push receipt.
+    const native = listener.mock.calls[0][0] as Quote;
+    const result = stream.seedSnapshot({ ...native, last: 79000 });
+    expect(result.last).toBe(80001);
+    off();
+    expect(direct.readyState).toBe(3);
+  });
+
+  it("retries policy failures and ignores an old lookup after the last listener leaves", async () => {
+    let resolve!: (value: { routes: { security: string; provider: "kraken" }[] }) => void;
+    const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    const stream = new QuoteStream(() => "ws://x/ws", () => performance.now(), load);
+    const off = stream.subscribe("XBTUSD Curncy", vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(load).toHaveBeenCalledTimes(2);
+    off();
+    resolve({ routes: [{ security: "XBTUSD Curncy", provider: "kraken" }] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors HTTP denial even when the relay advertises legacy direct crypto", async () => {
+    const stream = new QuoteStream(() => "ws://x/ws", () => performance.now(), async (securities) => ({
+      routes: securities.map((security) => ({ security, provider: null })),
+    }));
+    const off = stream.subscribe("XBTUSD Curncy", vi.fn());
+    const server = FakeSocket.instances[0]; server.open(); config(server, true);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(FakeSocket.instances).toHaveLength(1);
+    off();
+  });
+
   it("keeps the relay until the first direct tick, then removes only that relay subscription", () => {
     const stream = new QuoteStream(() => "ws://x/ws"); const crypto = vi.fn(); const equity = vi.fn();
     const offCrypto = stream.subscribe("XBTUSD Curncy", crypto);

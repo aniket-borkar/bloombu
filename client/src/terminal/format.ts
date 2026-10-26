@@ -4,7 +4,7 @@ import type { Sector } from "./sectors";
 export function decimalsFor(sector: Sector | null, value: number | null): number {
   if (value === null) return 2;
   const v = Math.abs(value);
-  if (sector === "Curncy") return v < 10 ? 4 : v < 1000 ? 3 : 2;
+  if (sector === "Curncy") return v < 10 ? 5 : v < 1000 ? 3 : 2;
   if (sector === "Govt") return 3;
   if (v < 1) return 4;
   return 2;

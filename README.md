@@ -235,7 +235,13 @@ headlines every minute, with shared server caching. Publisher release times and
 network availability still determine when a story becomes available.
 
 Stocks, indices, FX and futures use Yahoo's keyless public quote stream where it
-publishes updates, with snapshot fallback. History and company research also use
+publishes updates, with snapshot fallback. A same-origin HTTP policy lookup
+authorizes each browser subscription using the configured provider order, so
+public feeds can start even when the server quote socket is unavailable. The
+browser connects directly to Yahoo for supported securities and Kraken for
+supported crypto, preserving server delivery until a valid direct tick arrives.
+FX prices below 10 display five decimals so smaller live moves remain visible.
+History and company research also use
 Yahoo where the other keyless sources do not provide coverage. The stream is an
 unofficial interface and does not guarantee updates for every instrument or
 session; exchange delays still apply. This configuration does not include a
@@ -249,7 +255,7 @@ interval. After 15 seconds without a native update, the server checks REST
 snapshots until streaming resumes. Independently, the browser checks quiet
 securities over HTTP every five seconds once no accepted push has arrived for
 eight seconds. An open socket does not suppress these checks. Snapshot endpoint
-caches last two seconds. Direct crypto switches back to the relay after eight
+caches last two seconds. Direct public streams switch back to the relay after eight
 seconds of silence. Requests cannot overlap within a polling screen, time out if
 they hang, and preserve the last good quote on transient source failures.
 A slow snapshot cannot replace a newer streamed price. `SRC <GO>` shows

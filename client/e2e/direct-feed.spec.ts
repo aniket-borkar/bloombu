@@ -26,7 +26,11 @@ async function fixture(page: Page, directKraken: boolean) {
   let relay: WebSocketRoute | undefined;
   let direct: WebSocketRoute | undefined;
   let directConnections = 0;
+  await page.route("**/api/indices", (route) => route.fulfill({ json: [] }));
   await page.route("**/api/quote/XBTUSD*", (route) => route.fulfill({ json: relayQuote }));
+  await page.route("**/api/stream/routes?*", (route) => route.fulfill({ json: {
+    routes: [{ security: SECURITY, provider: directKraken ? "kraken" : null }],
+  } }));
   await page.routeWebSocket("**/ws", (ws) => {
     relay = ws;
     ws.onMessage((raw) => {
@@ -50,6 +54,7 @@ async function fixture(page: Page, directKraken: boolean) {
     panel, received, publicRequests,
     relay: () => relay!, direct: () => direct!, directConnections: () => directConnections,
     setRelay: (time: string, last: number) => { relayQuote = quote(time, last); },
+    setPolicy: (enabled: boolean) => { directKraken = enabled; },
   };
 }
 
@@ -94,6 +99,7 @@ test("revoking direct-feed policy closes the public route and restores server up
   await expect(f.panel.getByTestId("quote-route")).toHaveText("Direct feed");
 
   f.setRelay(new Date(at + 1000).toISOString(), 80003);
+  f.setPolicy(false);
   f.relay().send(JSON.stringify({ type: "stream.config", directKraken: false }));
   await expect(f.panel.getByTestId("last-price")).toHaveText("80,003.00");
   await expect(f.panel.getByTestId("quote-route")).toHaveText("Server feed");
