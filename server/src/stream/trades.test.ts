@@ -52,4 +52,17 @@ describe("TradeHub", () => {
     hub.handleMessage(a, { op: "trades.sub", security: "" });
     expect(a.got[1].type).toBe("error");
   });
+
+  it("keeps the client connected and allows retry after an upstream symbol limit", () => {
+    const { hub, plugin, client } = setup();
+    const a = client();
+    vi.mocked(plugin.subscribeTrades!).mockImplementationOnce(() => { throw new Error("30 symbol limit"); });
+    expect(() => hub.handleMessage(a, { op: "trades.sub", security: "AAPL US Equity" })).not.toThrow();
+    expect(a.got[0]).toMatchObject({ type: "trades", available: false });
+    expect(hub.stats().feeds).toBe(0);
+    hub.handleMessage(a, { op: "trades.sub", security: "AAPL US Equity" });
+    expect(a.got[1]).toMatchObject({ type: "trades", available: true });
+    hub.disconnect(a);
+    expect(hub.stats().feeds).toBe(0);
+  });
 });

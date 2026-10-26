@@ -2,7 +2,7 @@ import type express from "express";
 import type { ChatService } from "../chat/chat.js";
 import { normalizeUser } from "../chat/chat.js";
 import { TtlCache } from "../providers/cache.js";
-import { mergeHeadlines } from "../providers/newsFeeds.js";
+import { mergeHeadlines, NEWS_REFRESH_MS } from "../providers/newsFeeds.js";
 import type { ProviderRouter } from "../providers/router.js";
 import { normalizeSecurity } from "../symbology.js";
 import { SCREENS, type ScreenId, type Statement, type StatementPeriod } from "../types.js";
@@ -80,6 +80,7 @@ export function registerResearchRoutes(app: express.Express, router: ProviderRou
     listings: cache<unknown>(HOUR),
     futures: cache<unknown>(MIN),
     news: cache<unknown>(5 * MIN),
+    topNews: cache<unknown>(NEWS_REFRESH_MS),
     screens: cache<unknown>(MIN),
     curve: cache<unknown>(HOUR),
     money: cache<unknown>(HOUR),
@@ -163,7 +164,7 @@ export function registerResearchRoutes(app: express.Express, router: ProviderRou
 
   app.get("/api/news/top", (_req, res) => {
     void send(res, "topNews", () =>
-      c.news.get("__top__", async () => {
+      c.topNews.get("__top__", async () => {
         const lists = await router.all("topNews", null, (p) => p.topNews!());
         return lists.length ? mergeHeadlines(lists) : null;
       }),

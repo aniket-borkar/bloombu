@@ -191,7 +191,7 @@ All settings are environment variables, read from `.env` at the repo root. See
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PROVIDERS` | `yahoo,public` | Comma-separated provider priority list: `yahoo`, `finnhub`, `public`, `mock`, plus provider ids added by plugins |
+| `PROVIDERS` | `kraken,coinbase,public,yahoo` | No sign-up or keys required. Public crypto streams and official sources precede Yahoo snapshots. Explicit lists keep their exact order |
 | `FINNHUB_API_KEY` | | Required to enable the `finnhub` provider |
 | `FRED_API_KEY` | | Optional. Enables the `ECO` economic calendar via the `public` provider |
 | `PORT` | `8787` | Server port when running from source |
@@ -212,6 +212,44 @@ All settings are environment variables, read from `.env` at the repo root. See
 For each request the server uses the first provider in `PROVIDERS` that supports the
 security's market sector, and falls back to the next one on error.
 
+### Keyless streaming data
+
+The terminal and adapters are MIT licensed. The default data path needs no sign-up,
+API keys or paid subscription. Data licenses remain separate from the code license.
+Repository visibility is controlled independently; this update does not change it.
+
+Crypto quotes and trades use Kraken's official public WebSocket v2 feed, with
+Coinbase as an independent REST fallback. Both public feeds require no account or
+API key. Quotes identify the exchange because venue prices can differ.
+See [Kraken's public ticker stream](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker)
+and [public trade stream](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/trade).
+
+The `public` provider supplies official macroeconomic data and press feeds from
+central banks and the SEC, plus public financial headlines. TOP checks for new
+headlines every minute, with shared server caching. Publisher release times and
+network availability still determine when a story becomes available.
+
+Stocks, indices, FX, futures, history and company research still use Yahoo where
+the keyless sources do not provide coverage. This configuration does not include
+a real-time consolidated US stock trade tape. To omit Yahoo entirely, use
+`PROVIDERS=kraken,coinbase,public`; unsupported markets become unavailable rather
+than receiving substituted or simulated prices. Existing Finnhub/FRED adapters
+remain optional and are excluded from the keyless default.
+
+Native updates are forwarded when they arrive, without waiting for the polling
+interval. After 15 seconds without a native update, the server checks REST
+snapshots until streaming resumes. Requests respect each public source's budget.
+A slow snapshot cannot replace a newer streamed price. `SRC <GO>` shows
+active sources and coverage. Each security's
+header shows its actual provider, source timestamp, delay and quote age; quote age
+also grows when an exchange is closed or a security does not trade, and is not a
+network-latency measurement. No end-to-end latency guarantee is implied.
+
+No new environment variables are required. An existing custom `PROVIDERS` list
+must include `kraken` to enable it. A single self-hosted Node/Docker process can
+keep public streams open continuously; serverless deployments may reconnect as
+function instances start and stop.
+
 The AI analyst sends your questions, plus the data its tools fetch, to the model provider
 you configure. With `ollama`, everything stays on your machine.
 
@@ -222,6 +260,8 @@ access to data sources, and is responsible for complying with those sources' ter
 
 - **Coinbase** (`coinbase`): no key. Real-time crypto prices and trades from Coinbase's
   public market data; see Coinbase's API terms.
+- **Kraken** (`kraken`): public crypto ticker and trade channels, no account or key.
+  Exchange-specific data remains subject to Kraken's API/data terms.
 - **Yahoo Finance** (`yahoo`, via the unofficial `yahoo-finance2` library): no key
   needed. Yahoo's terms prohibit redistribution, so suitable for personal use only.
 - **Finnhub** (`finnhub`): free API key from finnhub.io. The free tier covers mainly US

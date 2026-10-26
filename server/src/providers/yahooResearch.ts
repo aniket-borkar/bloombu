@@ -489,9 +489,10 @@ export function parseRss(xml: string, fallbackSource: string): Headline[] {
   return out;
 }
 
-export async function topNews(): Promise<Headline[]> {
+export async function topNews(timeoutMs = 5_000): Promise<Headline[]> {
   const res = await fetch("https://finance.yahoo.com/news/rssindex", {
     headers: { "user-agent": "Mozilla/5.0 (compatible; blmbu-terminal)" },
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) throw new Error(`Yahoo RSS ${res.status}`);
   return parseRss(await res.text(), SOURCE);

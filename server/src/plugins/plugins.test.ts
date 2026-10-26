@@ -142,7 +142,7 @@ describe("createPlugins with plugin providers", () => {
 
   it("still rejects unknown ids once plugins have loaded", () => {
     const config = loadConfig({ PROVIDERS: "mock,nope", PLUGINS: "./x" });
-    expect(() => createPlugins(config, PLUGIN_FACTORIES, silent, [extra])).toThrow(/Unknown provider "nope" in PROVIDERS. Known: coinbase, yahoo, finnhub, public, mock, extra/);
+    expect(() => createPlugins(config, PLUGIN_FACTORIES, silent, [extra])).toThrow(/Unknown provider "nope" in PROVIDERS. Known: kraken, coinbase, yahoo, finnhub, public, mock, extra/);
     expect(() => loadConfig({ PROVIDERS: "nope" })).toThrow(/Unknown provider "nope"/);
   });
 });

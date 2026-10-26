@@ -1,6 +1,7 @@
 import path from "node:path";
 
-export const KNOWN_PROVIDERS = ["coinbase", "yahoo", "finnhub", "public", "mock"] as const;
+export const KNOWN_PROVIDERS = ["kraken", "coinbase", "yahoo", "finnhub", "public", "mock"] as const;
+export const DEFAULT_PROVIDERS = "kraken,coinbase,public,yahoo";
 export type ProviderId = (typeof KNOWN_PROVIDERS)[number];
 
 export const AI_PROVIDERS = ["openai", "anthropic", "ollama", "mock"] as const;
@@ -75,7 +76,7 @@ function authMode(raw: string | undefined): "password" | null {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const providers = (env.PROVIDERS ?? "coinbase,yahoo,public")
+  const providers = (env.PROVIDERS ?? DEFAULT_PROVIDERS)
     .split(",")
     .map((p) => p.trim().toLowerCase())
     .filter(Boolean);
@@ -95,7 +96,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const cacheDb = env.CACHE_DB || path.join(REPO_ROOT, "data", "cache.db");
   return {
     providers: [...new Set(providers)],
-    keys: { FINNHUB_API_KEY: env.FINNHUB_API_KEY || undefined, FRED_API_KEY: env.FRED_API_KEY || undefined },
+    keys: {
+      FINNHUB_API_KEY: env.FINNHUB_API_KEY || undefined,
+      FRED_API_KEY: env.FRED_API_KEY || undefined,
+    },
     port: int(env, "PORT", 8787, 1),
     cacheDb: cacheDb === ":memory:" ? cacheDb : path.resolve(cacheDb),
     streamIntervalMs: int(env, "STREAM_INTERVAL_MS", 5000, 500),

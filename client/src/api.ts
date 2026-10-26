@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useConnection } from "./store/connection";
 import { quoteStream } from "./stream";
+import { preferFreshQuote } from "./terminal/quoteFreshness";
 import type { HistoryInterval, HistoryRange } from "./terminal/functions";
 import type {
   Analysts,
@@ -323,6 +324,8 @@ interface PollingOptions<T> {
   subscribe?: (onData: (data: T) => void) => () => void;
   /** Skip scheduled polls while this returns true (the initial fetch always runs). */
   pauseWhen?: () => boolean;
+  /** Reconcile observations when push updates and slower snapshots can arrive out of order. */
+  reconcile?: (previous: T | null, incoming: T) => T;
 }
 
 /** Fetch `load` immediately and every `intervalMs`, keeping the last good value on transient errors. */
@@ -341,13 +344,18 @@ export function usePolling<T>(
     }
     let ctrl = new AbortController();
     let cancelled = false;
+    let pushRevision = 0;
     setState({ data: null, error: null, loading: true });
+    const receive = (data: T) => {
+      if (!cancelled) setState((s) => ({ data: options.reconcile?.(s.data, data) ?? data, error: null, loading: false }));
+    };
     const run = () => {
       ctrl = new AbortController();
+      const revision = pushRevision;
       load(ctrl.signal)
-        .then((data) => !cancelled && setState({ data, error: null, loading: false }))
+        .then(receive)
         .catch((error) => {
-          if (cancelled || error.name === "AbortError") return;
+          if (cancelled || error.name === "AbortError" || pushRevision !== revision) return;
           setState((s) => ({ data: error instanceof ApiError && error.status === 404 ? null : s.data, error, loading: false }));
         });
     };
@@ -356,7 +364,8 @@ export function usePolling<T>(
       if (!options.pauseWhen?.()) run();
     }, intervalMs);
     const unsubscribe = options.subscribe?.((data) => {
-      if (!cancelled) setState({ data, error: null, loading: false });
+      pushRevision++;
+      receive(data);
     });
     return () => {
       cancelled = true;
@@ -374,6 +383,7 @@ export const useQuote = (security: string | null) =>
   usePolling(security, (signal) => fetchQuote(security!, signal), 15_000, {
     subscribe: (onData) => quoteStream.subscribe(security!, onData),
     pauseWhen: () => quoteStream.connected,
+    reconcile: preferFreshQuote,
   });
 
 /** Live overlay for a list of quotes: each entry is replaced by its latest streamed update. */
@@ -383,14 +393,14 @@ export function useLiveQuotes(quotes: Quote[] | null): Quote[] | null {
 
   useEffect(() => {
     if (!key) return;
-    const unsubs = key.split("|").map((s) => quoteStream.subscribe(s, (q) => setLive((m) => ({ ...m, [q.security]: q }))));
+    const unsubs = key.split("|").map((s) => quoteStream.subscribe(s, (q) => setLive((m) => ({ ...m, [q.security]: preferFreshQuote(m[q.security], q) }))));
     return () => unsubs.forEach((u) => u());
   }, [key]);
 
   return (
     quotes?.map((q) => {
       const l = live[q.security];
-      return l && (l.time ?? "") >= (q.time ?? "") ? l : q;
+      return l ? preferFreshQuote(q, l) : q;
     }) ?? null
   );
 }

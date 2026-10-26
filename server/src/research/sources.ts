@@ -3,10 +3,12 @@ import type { LlmClient } from "../ai/llm.js";
 import type { Config } from "../config.js";
 import type { LoadedPlugin } from "../plugins/loader.js";
 import type { ProviderRouter } from "../providers/router.js";
+import { DEFAULT_NATIVE_STALE_MS } from "../stream/hub.js";
 import type { SourceSuggestion, SourcesReport } from "../types.js";
 
 const NOTES: Record<string, string> = {
   coinbase: "Real-time crypto prices and trades from Coinbase public market data (no key).",
+  kraken: "Real-time crypto quotes and trades from Kraken public market data. No account, API key or trading access. Prices reflect Kraken's venue, not a consolidated crypto price.",
   yahoo: "Stocks, indices, FX, futures and fundamentals. Many exchanges are delayed about 15 minutes. Personal use only.",
   finnhub: "Real-time US stock trades and quotes (free key, 60 requests a minute).",
   public: "Official and open data: US Treasury, New York Fed, ECB, BoE, BoJ, SNB, BoC, RBA, Japan MOF, World Bank, Fed/ECB/SEC press releases, CNBC and MarketWatch headlines, index members from Wikipedia and Nasdaq.",
@@ -15,7 +17,7 @@ const NOTES: Record<string, string> = {
 
 export interface SourcesDeps {
   router: ProviderRouter;
-  config: Pick<Config, "providers" | "keys" | "plugins" | "auth">;
+  config: Pick<Config, "providers" | "keys" | "plugins" | "auth" | "streamIntervalMs">;
   llm: LlmClient | null;
   plugins: LoadedPlugin[];
 }
@@ -26,15 +28,12 @@ export function sourcesReport({ router, config, llm, plugins }: SourcesDeps): So
   const active = new Set(router.plugins.map((p) => p.id));
   const pluginNote = (id: string) => plugins.find((p) => p.providers.includes(id));
   const suggestions: SourceSuggestion[] = [];
-  if (!active.has("finnhub")) {
+  if (!active.has("kraken")) {
     suggestions.push({
-      name: "Finnhub (free key)",
-      unlocks: "Real-time US stock trades for QR and faster US quotes",
-      how: "Sign up at https://finnhub.io/register, set FINNHUB_API_KEY and add finnhub to PROVIDERS",
+      name: "Kraken (no key)",
+      unlocks: "Independent crypto quotes and trades over a public stream",
+      how: "Include kraken before coinbase and yahoo in PROVIDERS. No sign-up or API key is needed.",
     });
-  }
-  if (!config.keys.FRED_API_KEY) {
-    suggestions.push({ name: "FRED (free key)", unlocks: "ECO economic release calendar", how: "Request a key at https://fred.stlouisfed.org/docs/api/api_key.html and set FRED_API_KEY" });
   }
   if (!llm) {
     suggestions.push({
@@ -50,6 +49,11 @@ export function sourcesReport({ router, config, llm, plugins }: SourcesDeps): So
     suggestions.push({ name: "Sign-in", unlocks: "Private portfolios, sheets, alerts and paper accounts per person", how: "Set AUTH=password (AUTH_SIGNUP=closed after creating accounts)" });
   }
   return {
+    delivery: {
+      pollingIntervalMs: config.streamIntervalMs,
+      nativeSilenceFallbackMs: DEFAULT_NATIVE_STALE_MS,
+      stockStreamProviders: router.plugins.filter((p) => p.subscribe && p.sectors.includes("Equity") && p.id !== "mock").map((p) => p.id),
+    },
     providers: router.describe().map((p) => ({
       id: p.id,
       note: NOTES[p.id] ?? (pluginNote(p.id) ? `Added by the ${pluginNote(p.id)!.name} plugin.` : ""),

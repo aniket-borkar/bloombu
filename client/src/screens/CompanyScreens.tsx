@@ -186,9 +186,9 @@ export function CnScreen({ panel, security }: ScreenProps) {
   );
 }
 
-/** TOP: top news from the provider's main feed. */
+/** TOP: combined publisher feeds, refreshed every minute. */
 export function TopScreen({ panel }: ScreenProps) {
-  const state = useData("top-news", (s) => api.topNews(s), 300_000);
+  const state = useData("top-news", (s) => api.topNews(s), 60_000);
   const sources = useMemo(() => {
     const counts = new Map<string, number>();
     for (const h of state.data ?? []) counts.set(h.source, (counts.get(h.source) ?? 0) + 1);

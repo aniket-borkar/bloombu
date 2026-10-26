@@ -1,6 +1,6 @@
 import type { KvCache } from "../cache/kv.js";
 import { fetchOvernightRates } from "./centralBanks.js";
-import { fetchNewsFeeds } from "./newsFeeds.js";
+import { fetchNewsFeeds, NEWS_REFRESH_MS } from "./newsFeeds.js";
 import { fetchSovereignCurves } from "./sovereign.js";
 import type { ProviderPlugin } from "./DataProvider.js";
 import { freeIndexMembers } from "./wikipedia.js";
@@ -240,7 +240,7 @@ export function createPublicProvider(opts: PublicOptions): ProviderPlugin {
         if (!rates.length) throw new Error("no central bank rate source answered");
         return rates;
       }),
-    topNews: () => cache.wrap("news:feeds", 5 * 60_000, () => fetchNewsFeeds(userAgent)),
+    topNews: () => cache.wrap("news:feeds", NEWS_REFRESH_MS, () => fetchNewsFeeds(userAgent)),
     sovereignCurves: () =>
       cache.wrap("curves:sovereign", 6 * 3_600_000, async () => {
         const curves = await fetchSovereignCurves(userAgent);

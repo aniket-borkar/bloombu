@@ -3,12 +3,26 @@ import type { Headline } from "../types.js";
 import { createMockProvider } from "./mock.js";
 import { NEWS_FEEDS, fetchNewsFeeds, mergeHeadlines } from "./newsFeeds.js";
 import { ProviderRouter } from "./router.js";
+import { topNews } from "./yahooResearch.js";
 
 afterEach(() => vi.unstubAllGlobals());
 
 const h = (title: string, source: string, time: string | null): Headline => ({ id: title, title, source, time, url: null });
 
 describe("news aggregation", () => {
+  it("lets public headlines finish when Yahoo RSS times out", async () => {
+    vi.stubGlobal("fetch", vi.fn((url: string, options?: RequestInit) => {
+      if (url.includes("finance.yahoo.com")) return new Promise<Response>((_resolve, reject) => {
+        options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), { once: true });
+      });
+      return Promise.resolve(new Response("<rss><channel><item><title>Official release</title></item></channel></rss>"));
+    }));
+    const results = await Promise.allSettled([topNews(10), fetchNewsFeeds("test", 10)]);
+    expect(results[0].status).toBe("rejected");
+    expect(results[1].status).toBe("fulfilled");
+    if (results[1].status === "fulfilled") expect(results[1].value).toHaveLength(NEWS_FEEDS.length);
+  });
+
   it("merges sources, drops repeated stories and sorts newest first", () => {
     const merged = mergeHeadlines([
       [h("Fed holds rates steady", "Yahoo", "2026-09-25T18:00:00Z"), h("Oil jumps 3%", "Yahoo", "2026-09-25T12:00:00Z")],
@@ -35,6 +49,26 @@ describe("news aggregation", () => {
     expect(items).toHaveLength(NEWS_FEEDS.length - 1);
     expect(items.find((i) => i.source === "Federal Reserve")).toMatchObject({ title: "Story from www.federalreserve.gov", time: "2026-09-25T18:00:00.000Z" });
     expect(items.some((i) => i.source === "CNBC")).toBe(false);
+  });
+
+  it("still returns responding publishers when another feed never answers before its deadline", async () => {
+    let aborted = false;
+    vi.stubGlobal("fetch", vi.fn((url: string, options: RequestInit) => {
+      if (url.includes("federalreserve")) {
+        return new Promise<Response>((_resolve, reject) => {
+          options.signal!.addEventListener("abort", () => {
+            aborted = true;
+            reject(options.signal!.reason);
+          }, { once: true });
+        });
+      }
+      return Promise.resolve(new Response(`<rss><channel><item><title>Story from ${new URL(url).host}</title><link>https://example.com/story</link></item></channel></rss>`));
+    }));
+    const items = await fetchNewsFeeds("test", 20);
+    expect(aborted).toBe(true);
+    expect(items).toHaveLength(NEWS_FEEDS.length - 1);
+    expect(items.some((item) => item.source === "ECB")).toBe(true);
+    expect(items.some((item) => item.source === "Federal Reserve")).toBe(false);
   });
 
   it("collects a capability from every provider", async () => {

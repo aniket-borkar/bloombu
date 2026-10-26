@@ -286,6 +286,16 @@ button {
 }
 .panel-menu-feedback.error { border-color: var(--red); }
 
+.sources-screen { overflow: auto; }
+.sources-screen > * { flex-shrink: 0; }
+.sources-screen .kv-item { white-space: normal; align-items: baseline; }
+.sources-screen .kv-item > .label { min-width: 12ch; flex-shrink: 0; }
+.sources-screen .kv-item > :last-child { overflow-wrap: anywhere; }
+.sources-screen .table-wrap { overflow: auto; }
+.sources-screen [data-testid="src-providers"] td:nth-child(2) { white-space: normal; min-width: 30ch; }
+.sources-screen [data-testid="src-suggestions"] .data-table { table-layout: fixed; }
+.sources-screen [data-testid="src-suggestions"] td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; padding: 5px 6px 5px 0; }
+
 .screen {
   display: flex;
   flex-direction: column;

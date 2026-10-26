@@ -153,6 +153,199 @@ describe("StreamHub", () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
+  it("polls silent native feeds and stops the fallback when native updates resume", async () => {
+    let now = 0;
+    let push!: (q: Quote) => void;
+    const unsubscribe = vi.fn();
+    const { source, calls } = fakeSource({
+      id: "push", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { push = onQuote; return unsubscribe; },
+    });
+    const hub = new StreamHub(source, 1000, () => {}, { now: () => now });
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    now = 14_999;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls).toHaveLength(0);
+    now = 15_000;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls).toEqual([["AAPL US Equity"]]);
+    expect(a.received.at(-1)?.quote?.last).toBe(100);
+
+    now = 16_000;
+    price = 101;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls).toHaveLength(2);
+    push(quote("AAPL US Equity", 102));
+    now = 30_999;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls).toHaveLength(2);
+    now = 31_000;
+    vi.advanceTimersByTime(1000);
+    await flush();
+    expect(calls).toHaveLength(3);
+    hub.close();
+    expect(unsubscribe).toHaveBeenCalledOnce();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("falls back to polling after synchronous native subscription errors", async () => {
+    let leakedPush!: (q: Quote) => void;
+    const { source, calls } = fakeSource({
+      id: "broken", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { leakedPush = onQuote; throw new Error("subscription refused"); },
+    });
+    const log = vi.fn();
+    const hub = new StreamHub(source, 1000, log);
+    const a = fakeClient();
+    hub.connect(a.client);
+    expect(() => hub.handleMessage(a.client, sub(["AAPL US Equity"]))).not.toThrow();
+    await flush();
+    expect(calls).toEqual([["AAPL US Equity"]]);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("subscription refused"));
+    expect(a.received.at(-1)?.quote?.last).toBe(100);
+    leakedPush(quote("AAPL US Equity", 999));
+    expect(a.received.at(-1)?.quote?.last).toBe(100);
+    hub.close();
+  });
+
+  it("keeps newer native quotes when a slow fallback resolves and avoids overlapping requests", async () => {
+    let now = 0;
+    let push!: (q: Quote) => void;
+    let resolve!: (quotes: Quote[]) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { push = onQuote; return () => {}; },
+    });
+    const fetch = vi.fn(() => new Promise<Quote[]>((done) => { resolve = done; }));
+    source.quotes = fetch;
+    const hub = new StreamHub(source, 1000, () => {}, { now: () => now });
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    push({ ...quote("AAPL US Equity", 100), time: "2026-10-26T12:00:00Z" });
+    now = 15_000;
+    const pending = hub.poll();
+    await hub.poll();
+    expect(fetch).toHaveBeenCalledTimes(1);
+    push({ ...quote("AAPL US Equity", 102), time: "2026-10-26T12:00:02Z" });
+    resolve([{ ...quote("AAPL US Equity", 101), time: "2026-10-26T12:00:01Z" }]);
+    await pending;
+    expect(a.received.map((m) => m.quote?.last)).toEqual([100, 102]);
+
+    now = 30_000;
+    const later = hub.poll();
+    resolve([{ ...quote("AAPL US Equity", 103), time: "2026-10-26T12:00:03Z" }]);
+    await later;
+    expect(a.received.at(-1)?.quote?.last).toBe(103);
+    hub.close();
+  });
+
+  it("preserves native updates over in-flight snapshots without comparable timestamps", async () => {
+    let now = 0;
+    let push!: (q: Quote) => void;
+    let resolve!: (quotes: Quote[]) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { push = onQuote; return () => {}; },
+    });
+    source.quotes = () => new Promise<Quote[]>((done) => { resolve = done; });
+    const hub = new StreamHub(source, 1000, () => {}, { now: () => now });
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    now = 15_000;
+    const pending = hub.poll();
+    push(quote("AAPL US Equity", 102));
+    resolve([quote("AAPL US Equity", 101)]);
+    await pending;
+    expect(a.received.map((m) => m.quote?.last)).toEqual([102]);
+    hub.close();
+  });
+
+  it("publishes provider and delay changes even when the market timestamp and price match", () => {
+    let push!: (q: Quote) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { push = onQuote; return () => {}; },
+    });
+    const hub = new StreamHub(source, 1000, () => {});
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    const snapshot = { ...quote("AAPL US Equity"), time: "2026-10-26T12:00:00Z" };
+    push({ ...snapshot, source: "Direct venue", delayMinutes: 0 });
+    push({ ...snapshot, source: "Backup", delayMinutes: 0 });
+    push({ ...snapshot, source: "Backup", delayMinutes: 15 });
+    expect(a.received.map((m) => [m.quote?.source, m.quote?.delayMinutes])).toEqual([
+      ["Direct venue", 0], ["Backup", 0], ["Backup", 15],
+    ]);
+    // An older market event must not rewind the screen even when it arrives on push.
+    push({ ...snapshot, last: 99, time: "2026-10-26T11:59:59Z" });
+    push({ ...snapshot, last: 98, time: null });
+    expect(a.received).toHaveLength(3);
+    hub.close();
+  });
+
+  it("orders distinct exchange events within the same millisecond", () => {
+    let push!: (q: Quote) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"], subscribe: (_securities, onQuote) => { push = onQuote; return () => {}; },
+    });
+    const hub = new StreamHub(source, 1000, () => {});
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    push({ ...quote("AAPL US Equity", 102), time: "2026-10-26T12:00:00.123999999Z" });
+    push({ ...quote("AAPL US Equity", 100), time: "2026-10-26T12:00:00.123000001Z" });
+    expect(a.received.map((m) => m.quote?.last)).toEqual([102]);
+    hub.close();
+  });
+
+  it("discards old subscription results and callbacks after unsubscribe or shutdown", async () => {
+    let now = 0;
+    const callbacks: ((q: Quote) => void)[] = [];
+    let resolve!: (quotes: Quote[]) => void;
+    const unsubscribe = vi.fn();
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"],
+      subscribe: (_securities, onQuote) => { callbacks.push(onQuote); return unsubscribe; },
+    });
+    const fetch = vi.fn(() => new Promise<Quote[]>((done) => { resolve = done; }));
+    source.quotes = fetch;
+    const hub = new StreamHub(source, 1000, () => {}, { now: () => now });
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    now = 15_000;
+    const first = hub.poll();
+    hub.handleMessage(a.client, unsub(["AAPL US Equity"]));
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    callbacks[0](quote("AAPL US Equity", 999));
+    resolve([quote("AAPL US Equity", 999)]);
+    await first;
+    expect(a.received).toHaveLength(0);
+    callbacks[1](quote("AAPL US Equity", 101));
+    expect(a.received.at(-1)?.quote?.last).toBe(101);
+
+    now = 30_000;
+    const second = hub.poll();
+    hub.close();
+    resolve([quote("AAPL US Equity", 999)]);
+    await second;
+    callbacks[1](quote("AAPL US Equity", 999));
+    expect(a.received).toHaveLength(1);
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+    await hub.poll();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects malformed messages", () => {
     const hub = new StreamHub(fakeSource().source, 1000, () => {});
     const a = fakeClient();

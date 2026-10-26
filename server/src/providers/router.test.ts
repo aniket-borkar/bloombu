@@ -143,6 +143,20 @@ describe("createPlugins", () => {
     expect(plugins.map((p) => p.id)).toEqual(["finnhub", "mock"]);
   });
 
+  it("configures independent crypto streams without credentials and leaves stocks to snapshots", () => {
+    const complete = createPlugins(loadConfig({ PROVIDERS: "kraken,coinbase,mock" }), undefined, silent);
+    const router = new ProviderRouter(complete, silent);
+    expect(complete.map((p) => p.id)).toEqual(["kraken", "coinbase", "mock"]);
+    expect(router.streamingPlugin("XBTUSD Curncy")?.id).toBe("kraken");
+    expect(router.streamingPlugin("AAPL US Equity")).toBeNull();
+    expect(router.streamingPlugin("VOD LN Equity")).toBeNull();
+  });
+
+  it("keeps explicit mock-only configurations isolated even when free credentials exist", () => {
+    const plugins = createPlugins(loadConfig({ PROVIDERS: "mock", FINNHUB_API_KEY: "key" }), undefined, silent);
+    expect(plugins.map((p) => p.id)).toEqual(["mock"]);
+  });
+
   it("fails when no provider is usable", () => {
     expect(() => createPlugins(loadConfig({ PROVIDERS: "finnhub" }), undefined, silent)).toThrow(/No data providers/);
   });

@@ -1,8 +1,15 @@
+import { useEffect, useState } from "react";
 import type { Quote } from "../api";
 import { decimalsFor, direction, fmtInt, fmtNum, fmtSigned, fmtTradeTime } from "../terminal/format";
 import { sectorOf, tickerOf } from "../terminal/sectors";
+import { quoteAge } from "../terminal/quoteFreshness";
 
 export function SecurityHeader({ quote }: { quote: Quote }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
   const sector = sectorOf(quote.security);
   const d = decimalsFor(sector, quote.last);
   const dir = direction(quote.change);
@@ -67,6 +74,9 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
         <span className="gray">
           {quote.source}
           {delayed ? ` · delayed ${quote.delayMinutes} min` : ""}
+        </span>
+        <span className="gray" data-testid="quote-age" title="Age since the source's last trade timestamp. Quiet or closed markets can have old trades; this is not a measurement of network latency.">
+          {quoteAge(quote.time, now)}
         </span>
       </div>
     </div>

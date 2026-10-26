@@ -12,8 +12,8 @@ export function SrcScreen({ panel }: ScreenProps) {
   const d = state.data;
   if (!d) return <DataState state={state} what="SOURCES" />;
   return (
-    <div className="col-flex" data-testid="src-screen">
-      <Section title="Data Sources" right="Everything here is free: self-hosted, no data resale, your own free keys" />
+    <div className="col-flex sources-screen" data-testid="src-screen">
+      <Section title="Data Sources" right="Default feeds need no sign-up or API key" />
       <DataTable
         panel={panel}
         paged={false}
@@ -30,6 +30,14 @@ export function SrcScreen({ panel }: ScreenProps) {
           { key: "thr", label: "Skipped", align: "right", render: (p) => fmtNum(p.usage.throttled, 0) },
         ]}
       />
+      <Section title="Quote Delivery" />
+      <KeyValues columns={1} items={[
+        ["Provider priority", d.providers.map((p) => p.id).join(" → ")],
+        ["Stock streaming configured", d.delivery.stockStreamProviders.length ? d.delivery.stockStreamProviders.join(", ") : "None — stocks use public snapshots; a real-time stock tape is not included"],
+        ["Updates", `Native streams when available; other quotes poll every ${d.delivery.pollingIntervalMs / 1000}s. Silent streams receive REST checks after ${d.delivery.nativeSilenceFallbackMs / 1000}s.`],
+        ["Coverage", "Kraken and Coinbase stream crypto without accounts. Stocks, indices and FX may use delayed Yahoo snapshots. A connected socket does not establish that a quote is current."],
+        ["Open source", "The terminal and integrations are MIT licensed. Free access to market data is separate from each source's reuse license."],
+      ]} />
       <KeyValues
         items={[
           ["AI analyst", d.ai ? `${d.ai.provider} / ${d.ai.model}` : "off"],

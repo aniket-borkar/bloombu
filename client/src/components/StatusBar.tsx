@@ -56,7 +56,7 @@ export function StatusBar() {
   return (
     <div className="status-bar" data-testid="status-bar">
       <span>
-        <span className={CONNECTION_CLASS[conn]} data-testid="connection" title="Data connection">
+        <span className={CONNECTION_CLASS[conn]} data-testid="connection" title="Browser-to-server connection. LIVE means the socket is connected; each quote's source, delay and timestamp determine market-data freshness.">
           {conn}
         </span>{" "}
         <span className={open ? "mkt-open" : "mkt-closed"}>{label}</span>

@@ -27,93 +27,167 @@ function usSymbol(security: string): string | null {
   return toYahoo(security);
 }
 
-function toQuote(security: string, q: FinnhubQuote): Quote {
+const finite = (value: unknown): number | null => typeof value === "number" && Number.isFinite(value) ? value : null;
+const positive = (value: unknown): number | null => {
+  const n = finite(value);
+  return n !== null && n > 0 ? n : null;
+};
+const isoTime = (milliseconds: unknown): string | null => {
+  const n = positive(milliseconds);
+  return n !== null && Number.isFinite(new Date(n).getTime()) ? new Date(n).toISOString() : null;
+};
+const tradingDate = new Intl.DateTimeFormat("en-CA", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" });
+
+function toQuote(security: string, q: Partial<FinnhubQuote>): Quote {
   return {
     security,
     name: security,
-    last: q.c,
-    change: q.d,
-    changePct: q.dp,
+    last: positive(q.c),
+    change: finite(q.d),
+    changePct: finite(q.dp),
     bid: null,
     ask: null,
     bidSize: null,
     askSize: null,
-    open: q.o,
-    high: q.h,
-    low: q.l,
-    prevClose: q.pc,
+    open: positive(q.o),
+    high: positive(q.h),
+    low: positive(q.l),
+    prevClose: positive(q.pc),
     volume: null,
     currency: "USD",
     exchange: null,
     marketState: null,
-    time: new Date(q.t * 1000).toISOString(),
+    time: isoTime((q.t ?? 0) * 1000),
     delayMinutes: 0,
     source: "Finnhub",
   };
 }
 
-export function createFinnhubProvider(apiKey: string): ProviderPlugin {
+/** An older REST snapshot may enrich today's fields without rewinding a live trade. */
+function mergeSnapshot(base: Quote | null, snapshot: Quote): Quote {
+  if (!base || !base.time || (snapshot.time && Date.parse(snapshot.time) > Date.parse(base.time))) return snapshot;
+  if (!snapshot.time || tradingDate.format(new Date(snapshot.time)) !== tradingDate.format(new Date(base.time))) return base;
+  const prevClose = snapshot.prevClose ?? base.prevClose;
+  const high = snapshot.high ?? base.high;
+  const low = snapshot.low ?? base.low;
+  const last = base.last;
+  const change = last !== null && prevClose !== null ? last - prevClose : null;
+  return {
+    ...snapshot,
+    last,
+    time: base.time,
+    prevClose,
+    change,
+    changePct: change !== null && prevClose ? change / prevClose * 100 : null,
+    high: high !== null && last !== null ? Math.max(high, base.high ?? high, last) : high,
+    low: low !== null && last !== null ? Math.min(low, base.low ?? low, last) : low,
+    open: snapshot.open ?? base.open,
+  };
+}
+
+export interface FinnhubOptions {
+  wsUrl?: string;
+  reconnectMs?: number;
+}
+
+export function createFinnhubProvider(apiKey: string, options: FinnhubOptions = {}): ProviderPlugin {
   let meter = new UsageMeter();
 
-  async function get<T>(path: string, params: Record<string, string>): Promise<T> {
+  async function get<T>(path: string, params: Record<string, string>, signal?: AbortSignal): Promise<T> {
     const url = new URL(BASE + path);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
     url.searchParams.set("token", apiKey);
     return meter.run("finnhub", RATE_LIMIT, async () => {
-      const res = await fetch(url);
+      const timeout = AbortSignal.timeout(10_000);
+      const res = await fetch(url, { signal: signal ? AbortSignal.any([signal, timeout]) : timeout });
       if (!res.ok) throw new Error(`Finnhub ${res.status}`);
       return (await res.json()) as T;
     });
   }
 
-  async function quote(security: string): Promise<Quote | null> {
+  async function quote(security: string, signal?: AbortSignal): Promise<Quote | null> {
     const symbol = usSymbol(security);
     const key = normalizeSecurity(security);
     if (!symbol || !key) return null;
-    const q = await get<FinnhubQuote>("/quote", { symbol });
-    return q && q.t ? toQuote(key, q) : null;
+    const q = await get<FinnhubQuote>("/quote", { symbol }, signal);
+    if (!q || positive(q.c) === null || !isoTime(q.t * 1000)) return null;
+    return toQuote(key, q);
   }
 
   // One shared trade socket; each symbol maps to the listeners and last snapshot for it.
   let socket: WebSocket | null = null;
-  const watchers = new Map<string, { security: string; base: Quote | null; listeners: Set<(q: Quote) => void>; retry?: ReturnType<typeof setTimeout> }>();
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  const watchers = new Map<string, { security: string; base: Quote | null; listeners: Set<(q: Quote) => void>; retry?: ReturnType<typeof setTimeout>; request?: AbortController; refresh?: () => void }>();
   const tapes = new Map<string, Set<(t: Trade) => void>>();
   const watched = (symbol: string) => watchers.has(symbol) || tapes.has(symbol);
+  const wanted = () => watchers.size > 0 || tapes.size > 0;
+
+  function stopWhenIdle() {
+    if (wanted()) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    const previous = socket;
+    socket = null;
+    previous?.close();
+  }
 
   function ensureSocket() {
-    if (socket) return;
-    socket = new WebSocket(`${WS_URL}?token=${encodeURIComponent(apiKey)}`);
-    socket.on("open", () => {
-      for (const symbol of new Set([...watchers.keys(), ...tapes.keys()])) socket?.send(JSON.stringify({ type: "subscribe", symbol }));
+    if (socket || !wanted()) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    const url = new URL(options.wsUrl ?? WS_URL);
+    url.searchParams.set("token", apiKey);
+    const ws = new WebSocket(url);
+    socket = ws;
+    ws.on("open", () => {
+      if (socket !== ws || !wanted()) return ws.close();
+      for (const symbol of new Set([...watchers.keys(), ...tapes.keys()])) ws.send(JSON.stringify({ type: "subscribe", symbol }));
     });
-    socket.on("message", (raw) => {
-      const msg = JSON.parse(raw.toString()) as { type: string; data?: { s: string; p: number; t: number; v?: number }[] };
-      if (msg.type !== "trade" || !msg.data) return;
-      for (const trade of msg.data) {
+    ws.on("message", (raw) => {
+      if (socket !== ws) return;
+      let msg: { type?: unknown; data?: unknown } | null;
+      try { msg = JSON.parse(raw.toString()); } catch { return; }
+      if (!msg || msg.type !== "trade" || !Array.isArray(msg.data)) return;
+      for (const value of msg.data) {
+        if (!value || typeof value !== "object") continue;
+        const trade = value as { s?: unknown; p?: unknown; t?: unknown; v?: unknown };
+        const time = isoTime(trade.t);
+        const price = positive(trade.p);
+        if (typeof trade.s !== "string" || !time || price === null) continue;
+        const volume = finite(trade.v);
         for (const l of tapes.get(trade.s) ?? []) {
-          l({ time: new Date(trade.t).toISOString(), price: trade.p, size: trade.v ?? null, side: null, venue: null });
+          l({ time, price, size: volume !== null && volume >= 0 ? volume : null, side: null, venue: null });
         }
         const w = watchers.get(trade.s);
-        if (!w?.base) continue;
-        const prev = w.base.prevClose;
+        if (!w) continue;
+        const base = w.base ?? toQuote(w.security, {});
+        if (base.time && Date.parse(time) < Date.parse(base.time)) continue;
+        const sameDay = !base.time || tradingDate.format(new Date(base.time)) === tradingDate.format(new Date(time));
+        const current = sameDay ? base : toQuote(w.security, {});
+        if (!sameDay && !w.request && !w.retry) w.refresh?.();
+        const prev = current.prevClose;
         const q: Quote = {
-          ...w.base,
-          last: trade.p,
-          change: prev !== null ? trade.p - prev : null,
-          changePct: prev ? ((trade.p - prev) / prev) * 100 : null,
-          high: Math.max(w.base.high ?? trade.p, trade.p),
-          low: Math.min(w.base.low ?? trade.p, trade.p),
-          time: new Date(trade.t).toISOString(),
+          ...current,
+          last: price,
+          change: prev !== null ? price - prev : null,
+          changePct: prev ? ((price - prev) / prev) * 100 : null,
+          high: current.high !== null ? Math.max(current.high, price) : null,
+          low: current.low !== null ? Math.min(current.low, price) : null,
+          time,
         };
         w.base = q;
         for (const l of w.listeners) l(q);
       }
     });
-    socket.on("close", () => {
+    ws.on("close", () => {
+      if (socket !== ws) return;
       socket = null;
-      if (watchers.size || tapes.size) setTimeout(ensureSocket, 5000);
+      if (wanted() && !reconnectTimer) {
+        reconnectTimer = setTimeout(() => { reconnectTimer = null; ensureSocket(); }, options.reconnectMs ?? 5000);
+        reconnectTimer.unref();
+      }
     });
-    socket.on("error", (err) => console.error("finnhub ws", err.message));
+    ws.on("error", (err) => { if (socket === ws && wanted()) console.error("finnhub ws", err.message); });
   }
 
   return {
@@ -161,35 +235,45 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
             entry.retry.unref();
           };
           const snapshot = () => {
-            void quote(key)
+            entry.retry = undefined;
+            if (watchers.get(symbol) !== entry) return;
+            const request = new AbortController();
+            entry.request = request;
+            void quote(key, request.signal)
               .then((q) => {
                 if (watchers.get(symbol) !== entry) return;
                 if (!q) return retry();
-                entry.base = q;
-                for (const l of entry.listeners) l(q);
+                entry.base = mergeSnapshot(entry.base, q);
+                for (const l of entry.listeners) l(entry.base);
               })
               .catch((err) => {
-                if (!(err instanceof RateLimited)) console.error("finnhub snapshot", err.message);
+                if (request.signal.aborted) return;
+                if (!(err instanceof RateLimited)) console.error("finnhub snapshot", err instanceof Error ? err.message : String(err));
                 retry();
-              });
+              }).finally(() => { if (entry.request === request) entry.request = undefined; });
           };
+          entry.refresh = snapshot;
           snapshot();
           if (!tapes.has(symbol) && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "subscribe", symbol }));
         }
         w.listeners.add(onQuote);
       }
       ensureSocket();
+      let active = true;
       return () => {
+        if (!active) return;
+        active = false;
         for (const symbol of symbols) {
           const w = watchers.get(symbol);
           if (!w) continue;
           w.listeners.delete(onQuote);
           if (w.listeners.size) continue;
           if (w.retry) clearTimeout(w.retry);
+          w.request?.abort();
           watchers.delete(symbol);
           if (!watched(symbol) && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "unsubscribe", symbol }));
         }
-        if (!watchers.size && !tapes.size) socket?.close();
+        stopWhenIdle();
       };
     },
 
@@ -204,12 +288,15 @@ export function createFinnhubProvider(apiKey: string): ProviderPlugin {
       }
       set.add(onTrade);
       ensureSocket();
+      let active = true;
       return () => {
+        if (!active) return;
+        active = false;
         const cur = tapes.get(symbol);
         if (!cur?.delete(onTrade) || cur.size) return;
         tapes.delete(symbol);
         if (!watched(symbol) && socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "unsubscribe", symbol }));
-        if (!watchers.size && !tapes.size) socket?.close();
+        stopWhenIdle();
       };
     },
   };

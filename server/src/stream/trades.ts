@@ -54,12 +54,19 @@ export class TradeHub {
       }
       const created: Feed = { unsubscribe: () => {}, buffer: [], clients: new Set() };
       this.feeds.set(security, created);
-      created.unsubscribe = plugin.subscribeTrades(security, (trade) => {
-        created.buffer.push(trade);
-        if (created.buffer.length > this.bufferSize) created.buffer.shift();
-        const msg = JSON.stringify({ type: "trade", security, trade });
-        for (const c of created.clients) c.send(msg);
-      });
+      try {
+        created.unsubscribe = plugin.subscribeTrades(security, (trade) => {
+          created.buffer.push(trade);
+          if (created.buffer.length > this.bufferSize) created.buffer.shift();
+          const msg = JSON.stringify({ type: "trade", security, trade });
+          for (const c of created.clients) c.send(msg);
+        });
+      } catch {
+        // Provider stream limits must not take down the shared client socket.
+        this.feeds.delete(security);
+        client.send(JSON.stringify({ type: "trades", security, available: false, trades: [] }));
+        return;
+      }
       feed = created;
     }
     if (feed.clients.has(client)) return;

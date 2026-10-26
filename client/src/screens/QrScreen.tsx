@@ -77,8 +77,8 @@ export function QrScreen({ panel, security }: ScreenProps) {
       <div data-testid="qr-screen">
         <div className="yellow">NO REAL-TIME TRADE STREAM FOR {security!.toUpperCase()}.</div>
         <p className="prose">
-          Crypto (for example XBTUSD Curncy) streams free from Coinbase. For US equities, add a free FINNHUB_API_KEY and put finnhub in PROVIDERS. SRC
-          &lt;GO&gt; shows what each data source covers.
+          Crypto (for example XBTUSD Curncy) streams from Kraken or Coinbase without sign-up or an API key.
+          The default keyless sources do not include a real-time stock trade tape. SRC &lt;GO&gt; shows coverage and source delays.
         </p>
       </div>
     );
@@ -87,7 +87,7 @@ export function QrScreen({ panel, security }: ScreenProps) {
   const buyPct = stats.buyVolume + stats.sellVolume > 0 ? (stats.buyVolume / (stats.buyVolume + stats.sellVolume)) * 100 : null;
   return (
     <div className="col-flex" data-testid="qr-screen">
-      <Section title="Trade Recap" right={available ? "Live · newest first" : "Connecting..."} />
+      <Section title="Trade Recap" right={trades.length ? "Newest trades first" : available ? "Waiting for trades..." : "Connecting..."} />
       <KeyValues
         columns={4}
         items={[

@@ -1,5 +1,6 @@
 import { KvCache } from "../cache/kv.js";
 import type { Config } from "../config.js";
+import { createKrakenProvider } from "./kraken.js";
 import { createCoinbaseProvider } from "./coinbase.js";
 import type { ProviderPlugin } from "./DataProvider.js";
 import { createFinnhubProvider } from "./finnhub.js";
@@ -13,6 +14,7 @@ interface PluginFactory {
 }
 
 export const PLUGIN_FACTORIES: Record<string, PluginFactory> = {
+  kraken: { create: () => createKrakenProvider() },
   coinbase: { create: () => createCoinbaseProvider() },
   yahoo: { create: () => createYahooProvider() },
   finnhub: { requiresKey: "FINNHUB_API_KEY", create: (c) => createFinnhubProvider(c.keys.FINNHUB_API_KEY!) },

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { loadConfig } from "./config.js";
 
 describe("loadConfig", () => {
-  it("defaults to coinbase crypto, yahoo and public data on port 8787", () => {
+  it("defaults to keyless exchange feeds and public data before Yahoo", () => {
     const c = loadConfig({});
-    expect(c.providers).toEqual(["coinbase", "yahoo", "public"]);
+    expect(c.providers).toEqual(["kraken", "coinbase", "public", "yahoo"]);
     expect(c.port).toBe(8787);
     expect(c.streamIntervalMs).toBe(5000);
     expect(c.cacheDb).toMatch(/data[/\\]cache\.db$/);
