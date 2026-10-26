@@ -118,7 +118,7 @@ describe("router free-tier guard", () => {
     const report = sourcesReport({ router, config: loadConfig({ PROVIDERS: "mock" }), llm: null, plugins: [] });
     expect(report.providers[0]).toMatchObject({ id: "mock", note: expect.stringContaining("Simulated") });
     expect(report.suggestions.map((s) => s.name)).toEqual(["Kraken (no key)", "Ollama (free, local)", "SEC EDGAR plugin", "Sign-in"]);
-    expect(report.delivery).toEqual({ pollingIntervalMs: 5000, nativeSilenceFallbackMs: 15000, stockStreamProviders: [] });
+    expect(report.delivery).toEqual({ pollingIntervalMs: 5000, nativeSilenceFallbackMs: 15000, stockStreamProviders: [], directCrypto: false });
     expect(report.signIn).toBe(false);
   });
 });

@@ -46,8 +46,10 @@ interface NativeSubscription {
  */
 export class StreamHub {
   private clients = new Map<StreamClient, Set<string>>();
+  private recipients = new Map<string, Set<StreamClient>>();
   private counts = new Map<string, number>();
   private last = new Map<string, Quote>();
+  private lastTime = new Map<string, bigint | null>();
   private native = new Map<string, NativeSubscription>();
   private sessions = new Map<string, object>();
   private inFlight = new Set<string>();
@@ -75,7 +77,10 @@ export class StreamHub {
     const subs = this.clients.get(client);
     if (!subs) return;
     this.clients.delete(client);
-    for (const s of subs) this.release(s);
+    for (const s of subs) {
+      this.recipients.get(s)?.delete(client);
+      this.release(s);
+    }
   }
 
   handleMessage(client: StreamClient, raw: string): void {
@@ -108,10 +113,14 @@ export class StreamHub {
         }
         subs.add(key);
         this.retain(key);
+        let recipients = this.recipients.get(key);
+        if (!recipients) this.recipients.set(key, (recipients = new Set()));
+        recipients.add(client);
         const cached = this.last.get(key);
         if (cached) this.send(client, { type: "quote", quote: cached });
         else fresh.push(key);
       } else if (subs.delete(key)) {
+        this.recipients.get(key)?.delete(client);
         this.release(key);
       }
     }
@@ -164,9 +173,11 @@ export class StreamHub {
     this.timer = null;
     for (const key of this.native.keys()) this.stopNative(key);
     this.clients.clear();
+    this.recipients.clear();
     this.counts.clear();
     this.sessions.clear();
     this.last.clear();
+    this.lastTime.clear();
   }
 
   private retain(key: string): void {
@@ -201,8 +212,10 @@ export class StreamHub {
       return;
     }
     this.counts.delete(key);
+    this.recipients.delete(key);
     this.sessions.delete(key);
     this.last.delete(key);
+    this.lastTime.delete(key);
     this.stopNative(key);
     if (!this.counts.size && this.timer) {
       clearInterval(this.timer);
@@ -220,17 +233,18 @@ export class StreamHub {
   private publish(q: Quote): void {
     if (this.closed || !this.counts.has(q.security)) return;
     const prev = this.last.get(q.security);
+    const nextTime = timestamp(q);
     if (prev) {
-      const prevTime = timestamp(prev);
-      const nextTime = timestamp(q);
-      if (prevTime !== null && (nextTime === null || nextTime < prevTime)) return;
+      const prevTime = this.lastTime.get(q.security);
+      if (prevTime != null && (nextTime === null || nextTime < prevTime)) return;
       if (!changed(prev, q)) return;
     }
     this.last.set(q.security, q);
+    this.lastTime.set(q.security, nextTime);
+    const recipients = this.recipients.get(q.security);
+    if (!recipients?.size) return;
     const msg = JSON.stringify({ type: "quote", quote: q } satisfies ServerMessage);
-    for (const [client, subs] of this.clients) {
-      if (subs.has(q.security)) client.send(msg);
-    }
+    for (const client of recipients) client.send(msg);
   }
 
   private send(client: StreamClient, msg: ServerMessage): void {

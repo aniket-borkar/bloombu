@@ -65,6 +65,38 @@ afterEach(() => {
 });
 
 describe("StreamHub", () => {
+  it("replays a synchronous native snapshot once and removes departing recipients", () => {
+    let push!: (q: Quote) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"], subscribe: (_securities, onQuote) => {
+        push = onQuote;
+        onQuote(quote("AAPL US Equity", 100));
+        return () => {};
+      },
+    });
+    const hub = new StreamHub(source, 1000, () => {});
+    const a = fakeClient();
+    const b = fakeClient();
+    const idle = fakeClient();
+    for (const c of [a, b, idle]) hub.connect(c.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    expect(a.received.map((m) => m.quote?.last)).toEqual([100]);
+    hub.handleMessage(b.client, sub(["AAPL US Equity"]));
+    expect(b.received.map((m) => m.quote?.last)).toEqual([100]);
+    push(quote("AAPL US Equity", 101));
+    expect(a.received.map((m) => m.quote?.last)).toEqual([100, 101]);
+    expect(b.received.map((m) => m.quote?.last)).toEqual([100, 101]);
+    hub.handleMessage(a.client, unsub(["AAPL US Equity"]));
+    push(quote("AAPL US Equity", 102));
+    expect(a.received).toHaveLength(2);
+    expect(b.received.at(-1)?.quote?.last).toBe(102);
+    expect(idle.received).toHaveLength(0);
+    hub.disconnect(b.client);
+    push(quote("AAPL US Equity", 103));
+    expect(b.received).toHaveLength(3);
+    hub.close();
+  });
+
   it("reference-counts subscriptions across clients", () => {
     const { source } = fakeSource();
     const hub = new StreamHub(source, 1000, () => {});
@@ -374,6 +406,26 @@ describe("StreamHub", () => {
 });
 
 describe("WebSocket transport", () => {
+  it("advertises only the supported public direct-feed capability", async () => {
+    vi.useRealTimers();
+    const hub = new StreamHub(fakeSource().source, 500, () => {});
+    const server = createServer();
+    const wss = attachWebSocket(server, hub, { directKraken: true });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const ws = new WebSocket(`ws://127.0.0.1:${(server.address() as AddressInfo).port}/ws`);
+    try {
+      const first = await new Promise<unknown>((resolve) => ws.once("message", (data) => resolve(JSON.parse(data.toString()))));
+      expect(first).toEqual({ type: "stream.config", directKraken: true });
+      expect(hub.stats()).toEqual({ clients: 1, securities: 0 });
+    } finally {
+      ws.close();
+      await new Promise((resolve) => ws.once("close", resolve));
+      wss.close();
+      hub.close();
+      server.close();
+    }
+  });
+
   it("streams quotes over /ws", async () => {
     vi.useRealTimers();
     const router = new ProviderRouter([createMockProvider()], () => {});

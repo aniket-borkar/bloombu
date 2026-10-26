@@ -3,6 +3,8 @@ import type { Quote } from "../api";
 import { decimalsFor, direction, fmtInt, fmtNum, fmtSigned, fmtTradeTime } from "../terminal/format";
 import { sectorOf, tickerOf } from "../terminal/sectors";
 import { quoteAge } from "../terminal/quoteFreshness";
+import { publicCryptoSymbol } from "../publicCrypto";
+import { quoteStream } from "../stream";
 
 export function SecurityHeader({ quote }: { quote: Quote }) {
   const [now, setNow] = useState(Date.now);
@@ -78,6 +80,10 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
         <span className="gray" data-testid="quote-age" title="Age since the source's last trade timestamp. Quiet or closed markets can have old trades; this is not a measurement of network latency.">
           {quoteAge(quote.time, now)}
         </span>
+        {publicCryptoSymbol(quote.security) && <span className="gray" data-testid="quote-route"
+          title="Direct connects this browser to Kraken's public feed. Server feed uses the terminal relay. Neither route guarantees exchange-to-screen latency.">
+          {quoteStream.routeFor(quote.security) === "direct" ? "Direct feed" : "Server feed"}
+        </span>}
       </div>
     </div>
   );

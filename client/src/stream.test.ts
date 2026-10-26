@@ -148,3 +148,91 @@ describe("connectionLabel", () => {
     expect(connectionLabel({ socket: "connecting", rest: false })).toBe("OFFLINE");
   });
 });
+
+const config = (socket: FakeSocket, directKraken: unknown) => socket.onmessage?.({ data: JSON.stringify({ type: "stream.config", directKraken }) });
+const cryptoTick = (socket: FakeSocket, time = "2026-10-26T14:30:00.123456789Z", last = 80001) => socket.onmessage?.({ data: JSON.stringify({
+  channel: "ticker", type: "update", data: [{ symbol: "BTC/USD", timestamp: time, last, bid: 80000, ask: 80002 }],
+}) });
+
+describe("QuoteStream direct routing", () => {
+  it("keeps the relay until the first direct tick, then removes only that relay subscription", () => {
+    const stream = new QuoteStream(() => "ws://x/ws"); const crypto = vi.fn(); const equity = vi.fn();
+    const offCrypto = stream.subscribe("XBTUSD Curncy", crypto);
+    const offEquity = stream.subscribe("AAPL US Equity", equity);
+    const server = FakeSocket.instances[0]; server.open(); config(server, true);
+    const direct = FakeSocket.instances[1];
+    expect(direct.url).toBe("wss://ws.kraken.com/v2");
+    expect(server.sent).toEqual([{ op: "sub", securities: ["XBTUSD Curncy", "AAPL US Equity"] }]);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("relay");
+    direct.open(); cryptoTick(direct);
+    expect(crypto).toHaveBeenCalledOnce();
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("direct");
+    expect(server.sent.at(-1)).toEqual({ op: "unsub", securities: ["XBTUSD Curncy"] });
+    server.push({ security: "XBTUSD Curncy", last: 1, time: "2026-10-26T14:30:01Z" });
+    server.push({ security: "AAPL US Equity", last: 100 });
+    expect(crypto).toHaveBeenCalledOnce();
+    expect(equity).toHaveBeenCalledOnce();
+    offCrypto(); offEquity();
+    expect(direct.readyState).toBe(3);
+  });
+
+  it("does not activate a cached direct quote older than the latest relay quote", () => {
+    const stream = new QuoteStream(() => "ws://x/ws"); const listener = vi.fn();
+    const off = stream.subscribe("XBTUSD Curncy", listener);
+    const server = FakeSocket.instances[0]; server.open();
+    server.push({ security: "XBTUSD Curncy", last: 80002, time: "2026-10-26T14:30:01Z" });
+    config(server, true);
+    const direct = FakeSocket.instances[1]; direct.open(); cryptoTick(direct);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("relay");
+    expect(server.sent).toHaveLength(1);
+    expect(listener).toHaveBeenCalledOnce();
+    cryptoTick(direct, "2026-10-26T14:30:02Z", 80003);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("direct");
+    expect(listener).toHaveBeenCalledTimes(2);
+    off();
+  });
+
+  it("restores relay after public failure and revokes direct routing when server policy changes", () => {
+    const stream = new QuoteStream(() => "ws://x/ws"); const listener = vi.fn();
+    const off = stream.subscribe("XBTUSD Curncy", listener);
+    const server = FakeSocket.instances[0]; server.open(); config(server, true);
+    const direct = FakeSocket.instances[1]; direct.open(); cryptoTick(direct); direct.close();
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("relay");
+    expect(server.sent.at(-1)).toEqual({ op: "sub", securities: ["XBTUSD Curncy"] });
+    server.push({ security: "XBTUSD Curncy", last: 80002, time: "2026-10-26T14:30:01Z" });
+    expect(listener.mock.calls.at(-1)![0].last).toBe(80002);
+    config(server, false);
+    vi.advanceTimersByTime(60_000);
+    expect(FakeSocket.instances).toHaveLength(2);
+    off();
+  });
+
+  it("honors explicit policy and leaves unsupported stock quotes on the server", () => {
+    const stream = new QuoteStream(() => "ws://x/ws");
+    const offStock = stream.subscribe("AAPL US Equity", vi.fn());
+    const server = FakeSocket.instances[0]; server.open(); config(server, true);
+    expect(FakeSocket.instances).toHaveLength(1);
+    config(server, "true");
+    const offCrypto = stream.subscribe("XBTUSD Curncy", vi.fn());
+    expect(FakeSocket.instances).toHaveLength(1);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("relay");
+    offStock(); offCrypto();
+  });
+
+  it("keeps direct crypto on server reconnect and resubscribes it if the new server disables direct mode", () => {
+    const stream = new QuoteStream(() => "ws://x/ws");
+    const off = stream.subscribe("XBTUSD Curncy", vi.fn());
+    const server = FakeSocket.instances[0]; server.open(); config(server, true);
+    const direct = FakeSocket.instances[1]; direct.open(); cryptoTick(direct);
+    server.close();
+    expect(stream.connected).toBe(false); // A public crypto connection cannot mark stock delivery connected.
+    vi.advanceTimersByTime(1000);
+    const nextServer = FakeSocket.instances[2]; nextServer.open();
+    expect(nextServer.sent).toEqual([]);
+    config(nextServer, false);
+    expect(nextServer.sent).toEqual([{ op: "sub", securities: ["XBTUSD Curncy"] }]);
+    expect(direct.readyState).toBe(3);
+    expect(stream.routeFor("XBTUSD Curncy")).toBe("relay");
+    off();
+  });
+});

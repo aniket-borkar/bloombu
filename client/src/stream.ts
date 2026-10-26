@@ -1,6 +1,8 @@
 import type { Quote } from "./api";
 import type { Trade } from "../../server/src/types";
 import { useConnection } from "./store/connection";
+import { sourceTimeNs } from "../../server/src/sourceTime";
+import { PublicCryptoStream, publicCryptoSymbol } from "./publicCrypto";
 
 type Listener = (q: Quote) => void;
 type MessageHandler = (msg: { type: string; [key: string]: unknown }) => void;
@@ -21,11 +23,20 @@ export class QuoteStream {
   private openCallbacks = new Set<() => void>();
   private attempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private direct: PublicCryptoStream | null = null;
+  private directStops = new Map<string, () => void>();
+  private directActive = new Set<string>();
+  private latest = new Map<string, Quote>();
 
   constructor(private url: () => string) {}
 
   get connected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** Delivery route, independent of the quote's exchange or source age. */
+  routeFor(security: string): "direct" | "relay" {
+    return this.directActive.has(security) ? "direct" : "relay";
   }
 
   private get wanted(): boolean {
@@ -58,13 +69,20 @@ export class QuoteStream {
       set = new Set();
       this.listeners.set(security, set);
       this.send({ op: "sub", securities: [security] });
+      this.watchDirect(security);
     }
     set.add(listener);
+    const cached = this.latest.get(security);
+    if (cached) listener(cached);
     this.ensureSocket();
     return () => {
       set.delete(listener);
       if (set.size || this.listeners.get(security) !== set) return;
       this.listeners.delete(security);
+      this.directStops.get(security)?.();
+      this.directStops.delete(security);
+      this.directActive.delete(security);
+      this.latest.delete(security);
       this.send({ op: "unsub", securities: [security] });
     };
   }
@@ -100,6 +118,50 @@ export class QuoteStream {
     return true;
   }
 
+  private publish(quote: Quote): boolean {
+    if (!this.listeners.has(quote.security)) return false;
+    const previous = this.latest.get(quote.security);
+    const before = sourceTimeNs(previous?.time);
+    const after = sourceTimeNs(quote.time);
+    if (before !== null && (after === null || after < before)) return false;
+    this.latest.set(quote.security, quote);
+    for (const listener of this.listeners.get(quote.security) ?? []) listener(quote);
+    return true;
+  }
+
+  private watchDirect(security: string): void {
+    if (!this.direct || this.directStops.has(security) || !publicCryptoSymbol(security)) return;
+    this.directStops.set(security, this.direct.subscribe(security, (quote) => {
+      if (!this.listeners.has(security)) return;
+      const previous = this.latest.get(security);
+      const before = sourceTimeNs(previous?.time);
+      const after = sourceTimeNs(quote.time);
+      // A cached exchange snapshot must not replace a newer relay observation.
+      if (before !== null && (after === null || after < before)) return;
+      if (!this.directActive.has(security)) {
+        this.directActive.add(security);
+        this.send({ op: "unsub", securities: [security] });
+      }
+      this.publish(quote);
+    }, () => {
+      if (this.directActive.delete(security) && this.listeners.has(security)) this.send({ op: "sub", securities: [security] });
+    }));
+  }
+
+  private configureDirect(enabled: boolean): void {
+    if (enabled) {
+      this.direct ??= new PublicCryptoStream();
+      for (const security of this.listeners.keys()) this.watchDirect(security);
+      return;
+    }
+    const active = [...this.directActive];
+    this.directActive.clear();
+    this.directStops.clear();
+    this.direct?.close();
+    this.direct = null;
+    for (const security of active) if (this.listeners.has(security)) this.send({ op: "sub", securities: [security] });
+  }
+
   private ensureSocket(): void {
     if (this.ws || this.reconnectTimer) return;
     const ws = new WebSocket(this.url());
@@ -107,16 +169,25 @@ export class QuoteStream {
     useConnection.setState({ socket: "connecting" });
 
     ws.onopen = () => {
+      if (this.ws !== ws) return;
       this.attempts = 0;
       useConnection.setState({ socket: "open" });
-      if (this.listeners.size) this.send({ op: "sub", securities: [...this.listeners.keys()] });
+      const relayed = [...this.listeners.keys()].filter((security) => !this.directActive.has(security));
+      if (relayed.length) this.send({ op: "sub", securities: relayed });
       for (const security of this.tradeSubscriptions.keys()) this.send({ op: "trades.sub", security });
       for (const fn of this.openCallbacks) fn();
     };
     ws.onmessage = (e) => {
-      const msg = JSON.parse(e.data as string) as { type: string; quote?: Quote; security?: string; available?: boolean; trades?: Trade[]; trade?: Trade };
+      if (this.ws !== ws) return;
+      let msg: { type: string; quote?: Quote; security?: string; available?: boolean; trades?: Trade[]; trade?: Trade; directKraken?: unknown };
+      try { msg = JSON.parse(e.data as string); } catch { return; }
+      if (!msg || typeof msg !== "object") return;
+      if (msg.type === "stream.config") {
+        this.configureDirect(msg.directKraken === true);
+        return;
+      }
       if (msg.type === "quote" && msg.quote) {
-        for (const l of this.listeners.get(msg.quote.security) ?? []) l(msg.quote);
+        if (!this.directActive.has(msg.quote.security)) this.publish(msg.quote);
         return;
       }
       if (msg.type === "trades" && msg.security && msg.trades && this.tradeSubscriptions.has(msg.security)) {
@@ -128,6 +199,7 @@ export class QuoteStream {
       for (const h of this.handlers.get(msg.type) ?? []) h(msg);
     };
     ws.onclose = () => {
+      if (this.ws !== ws) return;
       this.ws = null;
       this.tradeSnapshots.clear();
       useConnection.setState({ socket: "closed" });
@@ -137,7 +209,7 @@ export class QuoteStream {
         if (this.wanted) this.ensureSocket();
       }, delay);
     };
-    ws.onerror = () => ws.close();
+    ws.onerror = () => { if (this.ws === ws) ws.close(); };
   }
 }
 

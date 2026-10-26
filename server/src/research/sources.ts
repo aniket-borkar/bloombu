@@ -52,6 +52,7 @@ export function sourcesReport({ router, config, llm, plugins }: SourcesDeps): So
     delivery: {
       pollingIntervalMs: config.streamIntervalMs,
       nativeSilenceFallbackMs: DEFAULT_NATIVE_STALE_MS,
+      directCrypto: router.streamingPlugin("XBTUSD Curncy")?.id === "kraken",
       stockStreamProviders: router.plugins.filter((p) => p.subscribe && p.sectors.includes("Equity") && p.id !== "mock").map((p) => p.id),
     },
     providers: router.describe().map((p) => ({

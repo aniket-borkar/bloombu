@@ -94,6 +94,7 @@ export async function createTerminalServer(config: Config): Promise<TerminalServ
 
   const server = createServer(app);
   attachWebSocket(server, hub, {
+    directKraken: router.streamingPlugin("XBTUSD Curncy")?.id === "kraken",
     chat,
     presence,
     trades: new TradeHub(router),

@@ -8,6 +8,8 @@ import type { TradeHub, TradeMessage } from "./trades.js";
 const HEARTBEAT_MS = 30_000;
 
 export interface WsServices {
+  /** Advertise only the supported public direct route; no URLs or credentials are sent. */
+  directKraken?: boolean;
   chat?: ChatService;
   presence?: Presence;
   trades?: TradeHub;
@@ -45,6 +47,7 @@ export function attachWebSocket(server: Server, hub: StreamHub, services: WsServ
     alive.set(ws, true);
     hub.connect(client);
     chat?.connect(client);
+    if (services.directKraken !== undefined) client.send(JSON.stringify({ type: "stream.config", directKraken: services.directKraken }));
     ws.on("pong", () => alive.set(ws, true));
     ws.on("message", (data) => {
       const raw = data.toString();

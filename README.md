@@ -218,9 +218,14 @@ The terminal and adapters are MIT licensed. The default data path needs no sign-
 API keys or paid subscription. Data licenses remain separate from the code license.
 Repository visibility is controlled independently; this update does not change it.
 
-Crypto quotes and trades use Kraken's official public WebSocket v2 feed, with
-Coinbase as an independent REST fallback. Both public feeds require no account or
-API key. Quotes identify the exchange because venue prices can differ.
+When Kraken is the first configured crypto provider, the browser connects directly
+to its official public WebSocket v2 ticker, removing the server relay hop for quotes.
+The server stays subscribed until the browser receives a valid direct quote. A
+blocked, closed or silent direct stream restores server delivery; a healthy direct
+stream can take over again. The security header shows `Direct feed` or `Server feed`.
+The server continues to handle trade tapes, alerts and paper orders. Coinbase is an
+independent REST fallback. Both public feeds require no account or API key. Quotes
+identify the exchange because venue prices can differ.
 See [Kraken's public ticker stream](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/ticker)
 and [public trade stream](https://docs.kraken.com/exchange/api-reference/spot-websocket-v2/trade).
 
@@ -244,6 +249,20 @@ active sources and coverage. Each security's
 header shows its actual provider, source timestamp, delay and quote age; quote age
 also grows when an exchange is closed or a security does not trade, and is not a
 network-latency measurement. No end-to-end latency guarantee is implied.
+
+Direct quote callbacks run as messages arrive; there is no polling timer or frame
+delay inserted into that data path. Browser rendering still follows the display's
+refresh cycle. For example, a 60 Hz screen has a 16.7 ms frame interval. Public feed
+publication, internet transit, browser scheduling and painting are separate from
+the terminal's own dispatch CPU time; sub-millisecond CPU processing does not mean
+sub-millisecond exchange-to-screen delivery.
+
+Run `npm run bench:quotes` for a warmed local benchmark of timestamp validation,
+change detection, JSON serialization and message enqueueing. It reports p50, p95,
+p99 and maximum across recipient/idle-client workloads. It excludes exchange,
+network, real socket work and browser paint; its percentiles are measurements, not
+hard latency guarantees. Run `npm run bench:public-feed` to measure the public feed's WebSocket ping
+round trip separately. Neither benchmark fabricates market updates.
 
 No new environment variables are required. An existing custom `PROVIDERS` list
 must include `kraken` to enable it. A single self-hosted Node/Docker process can

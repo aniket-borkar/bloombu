@@ -112,7 +112,7 @@ export interface SourceSuggestion {
 
 export interface SourcesReport {
   providers: { id: string; note: string; capabilities: string[]; sectors: readonly string[]; usage: ProviderUsage }[];
-  delivery: { pollingIntervalMs: number; nativeSilenceFallbackMs: number; stockStreamProviders: string[] };
+  delivery: { pollingIntervalMs: number; nativeSilenceFallbackMs: number; stockStreamProviders: string[]; directCrypto: boolean };
   ai: { provider: string; model: string } | null;
   plugins: { name: string; functions: string[]; providers: string[] }[];
   signIn: boolean;

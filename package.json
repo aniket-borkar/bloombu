@@ -15,7 +15,9 @@
     "build": "npm run build -w server && npm run build -w client",
     "start": "npm run start -w server",
     "test": "npm run test -w server && npm run test -w client",
-    "test:e2e": "npm run test:e2e -w client"
+    "test:e2e": "npm run test:e2e -w client",
+    "bench:quotes": "npm run build -w server && node --experimental-strip-types server/scripts/bench-quotes.ts",
+    "bench:public-feed": "npm run build -w server && node --experimental-strip-types server/scripts/bench-public-feed.ts"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
