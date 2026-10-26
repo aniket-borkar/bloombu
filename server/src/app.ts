@@ -7,7 +7,7 @@ import type { HistoryCache } from "./history/cache.js";
 import { registerResolveRoute } from "./research/resolve.js";
 import { registerResearchRoutes } from "./research/routes.js";
 import { parseHistoryQuery, RANGE_MS } from "./history/ranges.js";
-import { TtlCache } from "./providers/cache.js";
+import { QUOTE_SNAPSHOT_TTL_MS, TtlCache } from "./providers/cache.js";
 import type { ProviderRouter } from "./providers/router.js";
 import { normalizeSecurity } from "./symbology.js";
 import type { Quote, SearchResult } from "./types.js";
@@ -52,8 +52,8 @@ export interface AppDeps {
 }
 
 export function createApp({ router, history, chat, now = Date.now, staticDir, routes = [], auth = null }: AppDeps): express.Express {
-  const quoteCache = new TtlCache<Quote | null>(15_000);
-  const tapeCache = new TtlCache<Quote[]>(15_000);
+  const quoteCache = new TtlCache<Quote | null>(QUOTE_SNAPSHOT_TTL_MS);
+  const tapeCache = new TtlCache<Quote[]>(QUOTE_SNAPSHOT_TTL_MS);
   const searchCache = new TtlCache<SearchResult[]>(60_000);
 
   const app = express();

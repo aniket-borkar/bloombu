@@ -3,6 +3,9 @@ interface Entry<T> {
   expires: number;
 }
 
+/** Snapshot endpoints should not add a 15-second delay to stream recovery. */
+export const QUOTE_SNAPSHOT_TTL_MS = 2_000;
+
 export class TtlCache<T> {
   private store = new Map<string, Entry<Promise<T>>>();
 

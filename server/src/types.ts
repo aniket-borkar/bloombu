@@ -30,6 +30,10 @@ export interface Quote {
   currency: string | null;
   exchange: string | null;
   marketState: string | null;
+  /** Session supplying last/time/change; OHLC and volume can still be regular-session fields. */
+  priceSession?: "regular" | "pre" | "post";
+  /** Latest regular-session price, separate from the previous-day reference used by day P&L. */
+  regularClose?: number | null;
   time: string | null;
   delayMinutes: number | null;
   source: string;

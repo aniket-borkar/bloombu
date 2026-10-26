@@ -17,6 +17,10 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
   const dir = direction(quote.change);
   const arrow = dir === "up" ? "▲" : dir === "down" ? "▼" : "";
   const delayed = (quote.delayMinutes ?? 0) > 0;
+  const extended = quote.priceSession === "pre" || quote.priceSession === "post";
+  const session = quote.priceSession === "pre" ? "Pre-market" : quote.priceSession === "post" ? "After-hours"
+    : quote.priceSession === "regular" ? (quote.marketState === "CLOSED" ? "Market closed · regular last"
+      : ["PRE", "PREPRE", "POST", "POSTPOST"].includes(quote.marketState ?? "") ? "Regular close · extended quote unavailable" : "Regular session") : null;
 
   return (
     <div className="sec-header" data-testid="security-header">
@@ -27,7 +31,7 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
         <span className="last" data-testid="last-price">
           {fmtNum(quote.last, d)}
         </span>
-        <span className={dir}>{fmtSigned(quote.change, d)}</span>
+        <span className={dir}>{extended && <span className="label">Day </span>}{fmtSigned(quote.change, d)}</span>
         <span className={dir}>{fmtSigned(quote.changePct, 2, "%")}</span>
         <span>
           <span className="label">At </span>
@@ -36,7 +40,7 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
         </span>
         {!!quote.volume && (
           <span>
-            <span className="label">Vol </span>
+            <span className="label">{extended ? "Reg Vol " : "Vol "}</span>
             <span className="white">{fmtInt(quote.volume)}</span>
           </span>
         )}
@@ -44,9 +48,9 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
       <div className="row">
         {(
           [
-            ["O", quote.open],
-            ["H", quote.high],
-            ["L", quote.low],
+            [extended ? "Reg O" : "O", quote.open],
+            [extended ? "Reg H" : "H", quote.high],
+            [extended ? "Reg L" : "L", quote.low],
             ["Prev", quote.prevClose],
           ] as const
         ).map(([label, v]) => (
@@ -55,6 +59,7 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
             <span className="white">{fmtNum(v, d)}</span>
           </span>
         ))}
+        {extended && <span><span className="label">Reg close </span><span className="white">{fmtNum(quote.regularClose ?? null, d)}</span></span>}
         {sector !== "Index" && (quote.bid !== null || quote.ask !== null) && (
           <span>
             <span className="label">Bid/Ask </span>
@@ -71,6 +76,9 @@ export function SecurityHeader({ quote }: { quote: Quote }) {
         )}
       </div>
       <div className="row">
+        {session && <span className="gray" data-testid="quote-session" title={extended
+          ? "Last and time use the extended-hours observation. Day change and Prev keep the previous-day reference. Reg O/H/L, Reg Vol and Reg close are regular-session values."
+          : "Last regular-session quote. Extended-hours prices appear only when Yahoo supplies a newer valid observation."}>{session}</span>}
         <span className="white">{quote.name}</span>
         {quote.exchange && <span className="gray">{quote.exchange}</span>}
         <span className="gray">

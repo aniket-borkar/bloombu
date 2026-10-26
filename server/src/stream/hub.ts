@@ -18,7 +18,7 @@ export type ServerMessage = { type: "quote"; quote: Quote } | { type: "error"; m
 const MAX_SUBSCRIPTIONS_PER_CLIENT = 200;
 export const DEFAULT_NATIVE_STALE_MS = 15_000;
 
-const CHANGE_FIELDS = ["name", "last", "change", "changePct", "bid", "ask", "bidSize", "askSize", "open", "high", "low", "prevClose", "volume", "time", "marketState", "source", "delayMinutes", "currency", "exchange"] as const;
+const CHANGE_FIELDS = ["name", "last", "change", "changePct", "bid", "ask", "bidSize", "askSize", "open", "high", "low", "prevClose", "volume", "time", "marketState", "priceSession", "regularClose", "source", "delayMinutes", "currency", "exchange"] as const;
 
 function changed(a: Quote, b: Quote): boolean {
   return CHANGE_FIELDS.some((f) => a[f] !== b[f]);

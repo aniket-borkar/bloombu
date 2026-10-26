@@ -234,21 +234,35 @@ central banks and the SEC, plus public financial headlines. TOP checks for new
 headlines every minute, with shared server caching. Publisher release times and
 network availability still determine when a story becomes available.
 
-Stocks, indices, FX, futures, history and company research still use Yahoo where
-the keyless sources do not provide coverage. This configuration does not include
-a real-time consolidated US stock trade tape. To omit Yahoo entirely, use
+Stocks, indices, FX and futures use Yahoo's keyless public quote stream where it
+publishes updates, with snapshot fallback. History and company research also use
+Yahoo where the other keyless sources do not provide coverage. The stream is an
+unofficial interface and does not guarantee updates for every instrument or
+session; exchange delays still apply. This configuration does not include a
+real-time consolidated US stock trade tape. To omit Yahoo entirely, use
 `PROVIDERS=kraken,coinbase,public`; unsupported markets become unavailable rather
 than receiving substituted or simulated prices. Existing Finnhub/FRED adapters
 remain optional and are excluded from the keyless default.
 
 Native updates are forwarded when they arrive, without waiting for the polling
 interval. After 15 seconds without a native update, the server checks REST
-snapshots until streaming resumes. Requests respect each public source's budget.
+snapshots until streaming resumes. Independently, the browser checks quiet
+securities over HTTP every five seconds once no accepted push has arrived for
+eight seconds. An open socket does not suppress these checks. Snapshot endpoint
+caches last two seconds. Direct crypto switches back to the relay after eight
+seconds of silence. Requests cannot overlap within a polling screen, time out if
+they hang, and preserve the last good quote on transient source failures.
 A slow snapshot cannot replace a newer streamed price. `SRC <GO>` shows
 active sources and coverage. Each security's
 header shows its actual provider, source timestamp, delay and quote age; quote age
 also grows when an exchange is closed or a security does not trade, and is not a
 network-latency measurement. No end-to-end latency guarantee is implied.
+
+When available, newer pre-market or after-hours observations replace the stale
+regular-session price. The header identifies the price session and labels
+regular-session OHLC and volume separately. Pre-market day change uses the last
+regular close; after-hours day change retains the previous-day reference, so
+portfolio day P&L does not become only the after-hours move.
 
 Direct quote callbacks run as messages arrive; there is no polling timer or frame
 delay inserted into that data path. Browser rendering still follows the display's

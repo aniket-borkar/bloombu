@@ -1,8 +1,10 @@
 import YahooFinance from "yahoo-finance2";
 import type { ProviderPlugin } from "./DataProvider.js";
-import type { Bar, Interval, Quote, SearchResult } from "../types.js";
+import type { Bar, Interval, SearchResult } from "../types.js";
 import { fromYahoo, normalizeSecurity, sectorOf, toYahoo } from "../symbology.js";
 import * as research from "./yahooResearch.js";
+import { yahooQuote } from "./yahooQuote.js";
+import { createYahooQuoteStream } from "./yahooStream.js";
 
 type YahooRecord = Record<string, unknown>;
 
@@ -16,40 +18,16 @@ const INTRADAY_LOOKBACK_MS: Partial<Record<Interval, number>> = {
   "1h": 729 * 86_400_000,
 };
 
-function toQuote(security: string, q: YahooRecord): Quote {
-  const time = q.regularMarketTime;
-  return {
-    security,
-    name: str(q.longName) ?? str(q.shortName) ?? security,
-    last: num(q.regularMarketPrice),
-    change: num(q.regularMarketChange),
-    changePct: num(q.regularMarketChangePercent),
-    bid: num(q.bid) || null,
-    ask: num(q.ask) || null,
-    bidSize: num(q.bidSize) || null,
-    askSize: num(q.askSize) || null,
-    open: num(q.regularMarketOpen),
-    high: num(q.regularMarketDayHigh),
-    low: num(q.regularMarketDayLow),
-    prevClose: num(q.regularMarketPreviousClose),
-    volume: num(q.regularMarketVolume),
-    currency: str(q.currency),
-    exchange: str(q.fullExchangeName) ?? str(q.exchange),
-    marketState: str(q.marketState),
-    time: time instanceof Date ? time.toISOString() : typeof time === "number" ? new Date(time * 1000).toISOString() : null,
-    delayMinutes: num(q.exchangeDataDelayedBy),
-    source: "Yahoo Finance",
-  };
-}
-
 const QUOTE_BATCH = 100;
 
 export function createYahooProvider(): ProviderPlugin {
   const yf = new YahooFinance({ suppressNotices: ["yahooSurvey"] });
+  const stream = createYahooQuoteStream();
 
   return {
     id: "yahoo",
     sectors: ["Equity", "Index", "Comdty", "Curncy", "Govt"],
+    subscribe: stream.subscribe,
 
     async quotes(securities) {
       const pairs = securities.flatMap((s) => {
@@ -65,10 +43,13 @@ export function createYahooProvider(): ProviderPlugin {
         await Promise.all(chunks.map((c) => yf.quote(c, { return: "array" }, { validateResult: false }) as Promise<YahooRecord[]>))
       ).flat();
       const bySymbol = new Map(results.map((r) => [r.symbol as string, r]));
-      return pairs.flatMap((p) => {
+      const quotes = pairs.flatMap((p) => {
         const r = bySymbol.get(p.symbol);
-        return r && num(r.regularMarketPrice) !== null ? [toQuote(p.security, r)] : [];
+        const quote = r ? yahooQuote(p.security, r) : null;
+        return quote ? [quote] : [];
       });
+      stream.seed(quotes);
+      return quotes;
     },
 
     async search(query) {

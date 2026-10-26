@@ -87,6 +87,8 @@ export interface Quote {
   time: string | null;
   delayMinutes: number | null;
   source: string;
+  priceSession?: "regular" | "pre" | "post";
+  regularClose?: number | null;
 }
 
 export interface SearchResult {
@@ -326,6 +328,10 @@ interface PollingOptions<T> {
   pauseWhen?: () => boolean;
   /** Reconcile observations when push updates and slower snapshots can arrive out of order. */
   reconcile?: (previous: T | null, incoming: T) => T;
+  /** Quote lookup failures after a good value should display that value with an error. */
+  retainLastValue?: boolean;
+  /** Bound safety requests so a half-open HTTP connection cannot stop future polls. */
+  requestTimeoutMs?: number;
 }
 
 /** Fetch `load` immediately and every `intervalMs`, keeping the last good value on transient errors. */
@@ -344,19 +350,38 @@ export function usePolling<T>(
     }
     let ctrl = new AbortController();
     let cancelled = false;
+    let inFlight = false;
     let pushRevision = 0;
     setState({ data: null, error: null, loading: true });
     const receive = (data: T) => {
       if (!cancelled) setState((s) => ({ data: options.reconcile?.(s.data, data) ?? data, error: null, loading: false }));
     };
     const run = () => {
-      ctrl = new AbortController();
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      const request = new AbortController();
+      ctrl = request;
+      const timeout = options.requestTimeoutMs ? window.setTimeout(() => {
+        request.abort(new DOMException("Data request timed out", "TimeoutError"));
+      }, options.requestTimeoutMs) : null;
       const revision = pushRevision;
-      load(ctrl.signal)
+      Promise.resolve().then(() => load(request.signal))
         .then(receive)
         .catch((error) => {
           if (cancelled || error.name === "AbortError" || pushRevision !== revision) return;
-          setState((s) => ({ data: error instanceof ApiError && error.status === 404 ? null : s.data, error, loading: false }));
+          setState((s) => {
+            const missing = error instanceof ApiError && error.status === 404;
+            const retained = options.retainLastValue && s.data !== null;
+            return {
+              data: missing && !retained ? null : s.data,
+              error: missing && retained ? new Error("Quote source returned no current value") : error,
+              loading: false,
+            };
+          });
+        })
+        .finally(() => {
+          if (timeout !== null) window.clearTimeout(timeout);
+          inFlight = false;
         });
     };
     run();
@@ -378,12 +403,14 @@ export function usePolling<T>(
   return state;
 }
 
-/** REST snapshot, then live WebSocket updates; falls back to polling while the socket is down. */
+/** REST snapshot, then push updates, with independent HTTP checks when this security goes quiet. */
 export const useQuote = (security: string | null) =>
-  usePolling(security, (signal) => fetchQuote(security!, signal), 15_000, {
+  usePolling(security, (signal) => fetchQuote(security!, signal), 5_000, {
     subscribe: (onData) => quoteStream.subscribe(security!, onData),
-    pauseWhen: () => quoteStream.connected,
+    pauseWhen: () => quoteStream.isFresh(security!),
     reconcile: preferFreshQuote,
+    retainLastValue: true,
+    requestTimeoutMs: 10_000,
   });
 
 /** Live overlay for a list of quotes: each entry is replaced by its latest streamed update. */

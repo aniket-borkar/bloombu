@@ -3,7 +3,7 @@ import { cryptoPair } from "../../server/src/symbology";
 import type { Quote } from "./api";
 
 export const PUBLIC_KRAKEN_URL = "wss://ws.kraken.com/v2";
-export const DIRECT_IDLE_MS = 15_000;
+export const DIRECT_IDLE_MS = 8_000;
 const NAMES: Record<string, string> = { BTC: "Bitcoin", ETH: "Ethereum", SOL: "Solana" };
 const object = (v: unknown): Record<string, unknown> => v && typeof v === "object" && !Array.isArray(v) ? v as Record<string, unknown> : {};
 const number = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) ? v : null;

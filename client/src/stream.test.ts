@@ -46,6 +46,29 @@ afterEach(() => {
 });
 
 describe("QuoteStream", () => {
+  it("tracks actual accepted quote receipt per security instead of socket state or market time", () => {
+    let now = 0;
+    const stream = new QuoteStream(() => "ws://x/ws", () => now);
+    const offA = stream.subscribe("AAPL US Equity", vi.fn());
+    const offB = stream.subscribe("MSFT US Equity", vi.fn());
+    const server = FakeSocket.instances[0]; server.open();
+    expect(stream.isFresh("AAPL US Equity")).toBe(false);
+    const oldMarketTime = "2026-10-23T20:00:00Z";
+    server.push({ security: "AAPL US Equity", last: 100, time: oldMarketTime });
+    expect(stream.isFresh("AAPL US Equity")).toBe(true);
+    expect(stream.isFresh("MSFT US Equity")).toBe(false);
+    now = 7000;
+    server.push({ security: "MSFT US Equity", last: 100, time: oldMarketTime });
+    server.push({ security: "AAPL US Equity", last: 99, time: "2026-10-23T19:59:59Z" });
+    now = 8000;
+    expect(stream.connected).toBe(true);
+    expect(stream.isFresh("AAPL US Equity")).toBe(false);
+    expect(stream.isFresh("MSFT US Equity")).toBe(true);
+    server.close();
+    expect(stream.isFresh("MSFT US Equity")).toBe(false);
+    offA(); offB();
+  });
+
   it("opens one socket and subscribes each security once", () => {
     const s = new QuoteStream(() => "ws://x/ws");
     const a = vi.fn();

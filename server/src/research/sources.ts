@@ -9,7 +9,7 @@ import type { SourceSuggestion, SourcesReport } from "../types.js";
 const NOTES: Record<string, string> = {
   coinbase: "Real-time crypto prices and trades from Coinbase public market data (no key).",
   kraken: "Real-time crypto quotes and trades from Kraken public market data. No account, API key or trading access. Prices reflect Kraken's venue, not a consolidated crypto price.",
-  yahoo: "Stocks, indices, FX, futures and fundamentals. Many exchanges are delayed about 15 minutes. Personal use only.",
+  yahoo: "Keyless public quote stream for supported stocks, indices, FX and futures, plus snapshot fallback and fundamentals. Updates depend on the instrument, session and exchange delay. Unofficial access; personal use only.",
   finnhub: "Real-time US stock trades and quotes (free key, 60 requests a minute).",
   public: "Official and open data: US Treasury, New York Fed, ECB, BoE, BoJ, SNB, BoC, RBA, Japan MOF, World Bank, Fed/ECB/SEC press releases, CNBC and MarketWatch headlines, index members from Wikipedia and Nasdaq.",
   mock: "Simulated data for demos, development and tests.",

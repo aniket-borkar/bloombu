@@ -339,6 +339,23 @@ describe("StreamHub", () => {
     hub.close();
   });
 
+  it("publishes session/reference updates without requiring a price change", () => {
+    let push!: (q: Quote) => void;
+    const { source } = fakeSource({
+      id: "push", sectors: ["Equity"], subscribe: (_securities, onQuote) => { push = onQuote; return () => {}; },
+    });
+    const hub = new StreamHub(source, 1000, () => {});
+    const a = fakeClient();
+    hub.connect(a.client);
+    hub.handleMessage(a.client, sub(["AAPL US Equity"]));
+    const base = { ...quote("AAPL US Equity", 100), time: "2026-10-26T12:00:00Z" };
+    push(base);
+    push({ ...base, priceSession: "pre", regularClose: 99 });
+    expect(a.received).toHaveLength(2);
+    expect(a.received[1].quote).toMatchObject({ last: 100, priceSession: "pre", regularClose: 99 });
+    hub.close();
+  });
+
   it("discards old subscription results and callbacks after unsubscribe or shutdown", async () => {
     let now = 0;
     const callbacks: ((q: Quote) => void)[] = [];

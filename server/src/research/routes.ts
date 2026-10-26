@@ -1,7 +1,7 @@
 import type express from "express";
 import type { ChatService } from "../chat/chat.js";
 import { normalizeUser } from "../chat/chat.js";
-import { TtlCache } from "../providers/cache.js";
+import { QUOTE_SNAPSHOT_TTL_MS, TtlCache } from "../providers/cache.js";
 import { mergeHeadlines, NEWS_REFRESH_MS } from "../providers/newsFeeds.js";
 import type { ProviderRouter } from "../providers/router.js";
 import { normalizeSecurity } from "../symbology.js";
@@ -67,7 +67,7 @@ export function issuerKey(name: string): string {
 export function registerResearchRoutes(app: express.Express, router: ProviderRouter, chat?: ChatService): void {
   const cache = <T>(ttl: number) => new TtlCache<T>(ttl);
   const c = {
-    quotes: cache<unknown>(15_000),
+    quotes: cache<unknown>(QUOTE_SNAPSHOT_TTL_MS),
     profile: cache<unknown>(HOUR),
     financials: cache<unknown>(6 * HOUR),
     earnings: cache<unknown>(HOUR),

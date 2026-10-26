@@ -34,9 +34,10 @@ export function SrcScreen({ panel }: ScreenProps) {
       <KeyValues columns={1} items={[
         ["Provider priority", d.providers.map((p) => p.id).join(" → ")],
         ["Crypto path", d.delivery.directCrypto ? "Direct browser → Kraken stream, with server fallback. No account or key." : "Server relay, using the configured provider order."],
-        ["Stock streaming configured", d.delivery.stockStreamProviders.length ? d.delivery.stockStreamProviders.join(", ") : "None — stocks use public snapshots; a real-time stock tape is not included"],
+        ["Stock quote streams configured", d.delivery.stockStreamProviders.length ? d.delivery.stockStreamProviders.join(", ") : "None — stocks use public snapshots; a real-time stock tape is not included"],
         ["Updates", `Native streams when available; other quotes poll every ${d.delivery.pollingIntervalMs / 1000}s. Silent streams receive REST checks after ${d.delivery.nativeSilenceFallbackMs / 1000}s.`],
-        ["Coverage", "Kraken and Coinbase stream crypto without accounts. Stocks, indices and FX may use delayed Yahoo snapshots. A connected socket does not establish that a quote is current."],
+        ["Coverage", "Kraken and Coinbase stream crypto without accounts. Yahoo streams supported instruments and uses snapshots for quiet or unavailable feeds; exchange delays and closed sessions still apply. A connected socket does not establish that a quote is current."],
+        ["Recovery", "Each quiet security gets independent HTTP checks every 5s. Quote snapshot caches last 2s. Pre-market and after-hours prices are selected when the source supplies a newer observation."],
         ["Open source", "The terminal and integrations are MIT licensed. Free access to market data is separate from each source's reuse license."],
       ]} />
       <KeyValues

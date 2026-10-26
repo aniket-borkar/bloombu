@@ -9,6 +9,7 @@ type MessageHandler = (msg: { type: string; [key: string]: unknown }) => void;
 type TradeSnapshot = { type: "trades"; security: string; available: boolean; trades: Trade[] };
 
 const MAX_BACKOFF_MS = 30_000;
+export const QUOTE_FRESH_MS = 8_000;
 
 /**
  * One shared WebSocket for the whole app: reference-counted quote subscriptions,
@@ -27,11 +28,19 @@ export class QuoteStream {
   private directStops = new Map<string, () => void>();
   private directActive = new Set<string>();
   private latest = new Map<string, Quote>();
+  private receivedAt = new Map<string, number>();
 
-  constructor(private url: () => string) {}
+  constructor(private url: () => string, private now: () => number = () => performance.now()) {}
 
   get connected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  /** A working socket alone is not evidence that this security is receiving quotes. */
+  isFresh(security: string, maxAgeMs = QUOTE_FRESH_MS): boolean {
+    if (!this.connected && !this.directActive.has(security)) return false;
+    const received = this.receivedAt.get(security);
+    return received !== undefined && this.now() - received < maxAgeMs;
   }
 
   /** Delivery route, independent of the quote's exchange or source age. */
@@ -83,6 +92,7 @@ export class QuoteStream {
       this.directStops.delete(security);
       this.directActive.delete(security);
       this.latest.delete(security);
+      this.receivedAt.delete(security);
       this.send({ op: "unsub", securities: [security] });
     };
   }
@@ -125,6 +135,7 @@ export class QuoteStream {
     const after = sourceTimeNs(quote.time);
     if (before !== null && (after === null || after < before)) return false;
     this.latest.set(quote.security, quote);
+    this.receivedAt.set(quote.security, this.now());
     for (const listener of this.listeners.get(quote.security) ?? []) listener(quote);
     return true;
   }
@@ -144,7 +155,10 @@ export class QuoteStream {
       }
       this.publish(quote);
     }, () => {
-      if (this.directActive.delete(security) && this.listeners.has(security)) this.send({ op: "sub", securities: [security] });
+      if (this.directActive.delete(security) && this.listeners.has(security)) {
+        this.receivedAt.delete(security);
+        this.send({ op: "sub", securities: [security] });
+      }
     }));
   }
 
@@ -159,7 +173,10 @@ export class QuoteStream {
     this.directStops.clear();
     this.direct?.close();
     this.direct = null;
-    for (const security of active) if (this.listeners.has(security)) this.send({ op: "sub", securities: [security] });
+    for (const security of active) if (this.listeners.has(security)) {
+      this.receivedAt.delete(security);
+      this.send({ op: "sub", securities: [security] });
+    }
   }
 
   private ensureSocket(): void {

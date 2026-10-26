@@ -3,7 +3,6 @@ import { fetchIndices, useLiveQuotes, usePolling, type Quote } from "../api";
 import { authStatus, signOut } from "../auth";
 import { useAlerts } from "../store/alerts";
 import { connectionLabel, useConnection } from "../store/connection";
-import { quoteStream } from "../stream";
 import { decimalsFor, direction, fmtClock, fmtDate, fmtNum, fmtSigned } from "../terminal/format";
 import { sectorOf, tickerOf } from "../terminal/sectors";
 
@@ -41,9 +40,7 @@ function TapeItem({ q }: { q: Quote }) {
 
 export function StatusBar() {
   const now = useClock();
-  const { data: snapshot } = usePolling("indices", (signal) => fetchIndices(signal), 30_000, {
-    pauseWhen: () => quoteStream.connected,
-  });
+  const { data: snapshot } = usePolling("indices", (signal) => fetchIndices(signal), 30_000, { requestTimeoutMs: 15_000 });
   const data = useLiveQuotes(snapshot);
   const conn = useConnection(connectionLabel);
   const spx = data?.find((q) => q.security === "SPX Index");
